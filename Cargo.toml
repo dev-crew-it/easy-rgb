@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "rgb-common",
+    "rgb-cln"    
+]
+resolver = "2"
