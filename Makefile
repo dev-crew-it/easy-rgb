@@ -4,7 +4,8 @@ FMT=fmt
 OPTIONS=
 
 default: fmt
-	$(CC) build --all-features
+	$(CC) build
+	@make clippy
 
 fmt:
 	$(CC) fmt --all
@@ -12,5 +13,14 @@ fmt:
 check:
 	$(CC) test --all
 
+example:
+	@echo "No example for the moment"
+
 clean:
 	$(CC) clean
+
+clippy:
+	# $(CC) clippy --all --tests
+
+coffee:
+	$(CC) build --release
