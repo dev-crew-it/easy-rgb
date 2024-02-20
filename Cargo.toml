@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "rgb-common",
-    "rgb-cln"    
+    "rgb-cln",
+    "rgb-testing"
 ]
 resolver = "2"
