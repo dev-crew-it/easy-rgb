@@ -1,3 +1,5 @@
+use rgb_common::anyhow;
+
 mod plugin;
 
 fn main() -> anyhow::Result<()> {

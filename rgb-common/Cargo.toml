@@ -4,3 +4,27 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.71"
+
+bitcoin = { version = "0.29.0", default-features = false, features = ["secp-recovery"] }
+lightning = "0.0.118"
+
+amplify = "=4.5.0"
+base64 = "0.13.0"
+bp-core = "=0.10.11"
+commit_verify = "=0.10.6"
+futures = "0.3"
+hex = "0.4"
+reqwest = { version = "0.11", default-features = false, features = ["json", "blocking"] }
+rgb-contracts = { version = "=0.10.2", features = ["electrum"] }
+rgb_core = { package = "rgb-core", version = "=0.10.8" }
+rgb-lib = { git = "https://github.com/RGB-Tools/rgb-lib", branch = "rln_v0.10" }
+rgb-std = "=0.10.9"
+rgb-wallet = "=0.10.9"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+strict_encoding = "=2.6.1"
+tokio = { version = "1.36", features = ["macros", "rt-multi-thread"] }
+
+# Fixing dependencies resolution :/
+amplify_num = "=0.5.1"

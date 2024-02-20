@@ -38,6 +38,7 @@
             libcap
             gcc
             pkg-config
+            openssl
             git
 
             gnumake

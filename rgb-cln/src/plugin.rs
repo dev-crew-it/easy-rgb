@@ -6,6 +6,8 @@ use serde_json as json;
 use clightningrpc_plugin::{commands::RPCCommand, plugin::Plugin};
 use clightningrpc_plugin_macros::plugin;
 
+use rgb_common::anyhow;
+
 #[derive(Clone, Debug)]
 pub(crate) struct State;
 
