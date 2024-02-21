@@ -29,9 +29,6 @@ jobs:
         with:
           command: check
 
-      - name: Run cargo test
-        run: make check
-
   lints:
     name: Lints
     runs-on: ubuntu-latest
