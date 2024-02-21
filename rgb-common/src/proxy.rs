@@ -1,16 +1,54 @@
 //! A module for operating an RGB HTTP JSON-RPC proxy
+use core::str::FromStr;
+use core::time::Duration;
 
 use amplify::s;
+use bitcoin::Network;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
-use tokio::task;
-
-use core::time::Duration;
 
 use crate::BlockingClient;
 
 const JSON: &str = "application/json";
 const PROXY_TIMEOUT: u8 = 90;
+
+#[derive(Debug, Clone)]
+pub struct Client {
+    inner: BlockingClient,
+    network: Network,
+}
+
+impl Client {
+    pub fn new(network: &str) -> anyhow::Result<Self> {
+        let network = Network::from_str(network)?;
+        let inner = BlockingClient::builder()
+            .timeout(Duration::from_secs(PROXY_TIMEOUT as u64))
+            .build()?;
+        Ok(Self { inner, network })
+    }
+
+    pub fn get_consignment(&self, consignment_id: &str) -> anyhow::Result<JsonRpcResponse<String>> {
+        let body = JsonRpcRequest {
+            method: s!("consignment.get"),
+            jsonrpc: s!("2.0"),
+            id: None,
+            params: Some(BlindedUtxoParam {
+                blinded_utxo: consignment_id.to_owned(),
+            }),
+        };
+
+        // FIXME: add a URL for this
+        let url = "";
+        let resp = self
+            .inner
+            .post(format!("{url}"))
+            .header(CONTENT_TYPE, JSON)
+            .json(&body)
+            .send()?
+            .json::<JsonRpcResponse<String>>()?;
+        Ok(resp)
+    }
+}
 
 /// JSON-RPC Error
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -40,33 +78,4 @@ pub struct JsonRpcResponse<R> {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BlindedUtxoParam {
     blinded_utxo: String,
-}
-
-pub(crate) fn get_blocking_client() -> BlockingClient {
-    BlockingClient::builder()
-        .timeout(Duration::from_secs(PROXY_TIMEOUT as u64))
-        .build()
-        .expect("valid proxy")
-}
-
-pub(crate) fn get_consignment(
-    url: &str,
-    consignment_id: String,
-) -> Result<JsonRpcResponse<String>, reqwest::Error> {
-    task::block_in_place(|| {
-        let body = JsonRpcRequest {
-            method: s!("consignment.get"),
-            jsonrpc: s!("2.0"),
-            id: None,
-            params: Some(BlindedUtxoParam {
-                blinded_utxo: consignment_id,
-            }),
-        };
-        get_blocking_client()
-            .post(url)
-            .header(CONTENT_TYPE, JSON)
-            .json(&body)
-            .send()?
-            .json::<JsonRpcResponse<String>>()
-    })
 }

@@ -33,9 +33,11 @@ mod tests {
             "regtest",
         )
         .await?;
-        let result = cln.rpc().call::<json::Value, json::Value>("getinfo", json::json!({}));
+        let result = cln
+            .rpc()
+            .call::<json::Value, json::Value>("getinfo", json::json!({}));
+        log::info!(target: "test_init_plugin", "{:?}", result);
         assert!(result.is_ok(), "{:?}", result);
         Ok(())
-
     }
 }

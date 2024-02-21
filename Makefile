@@ -11,6 +11,7 @@ fmt:
 	$(CC) fmt --all
 
 check:
+	$(CC) build
 	RUST_LOG=debug $(CC) test --all -- --show-output
 
 example:

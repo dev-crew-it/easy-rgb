@@ -55,6 +55,8 @@
             export HOST_CC=gcc
             export PWD="$(pwd)"
             export RUST_LOG=debug
+
+            make
           '';
         };
       }
