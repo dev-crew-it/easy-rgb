@@ -12,6 +12,12 @@ pub struct RGBManager {
     wallet: Arc<Mutex<Wallet>>,
 }
 
+impl std::fmt::Debug for RGBManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "RGB manager struct {{ .. }}")
+    }
+}
+
 impl RGBManager {
     pub fn init(root_dir: &str, pubkey: &str, network: &str) -> anyhow::Result<Self> {
         let client = proxy::get_blocking_client();
