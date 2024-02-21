@@ -11,7 +11,7 @@ fmt:
 	$(CC) fmt --all
 
 check:
-	$(CC) test --all -- --show-output
+	RUST_LOG=debug $(CC) test --all -- --show-output
 
 example:
 	@echo "No example for the moment"
