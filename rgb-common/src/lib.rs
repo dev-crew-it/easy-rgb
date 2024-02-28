@@ -6,6 +6,7 @@ use lightning as ldk;
 use reqwest::blocking::Client as BlockingClient;
 
 pub use anyhow;
+pub use bitcoin;
 // Re-exporting RGB dependencies under a single module.
 pub use rgb;
 pub use rgb::interface::rgb20 as asset20;

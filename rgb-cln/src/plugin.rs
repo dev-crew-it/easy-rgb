@@ -1,24 +1,35 @@
-//! Plugin implementation
+//! RGB Plugin implementation
 //!
 //! Author: Vincenzo Palazzo <vincenzopalazzo@member.fsf.org>
-use std::{fmt::Debug, sync::Arc};
+use std::fmt;
+use std::fs;
+use std::io;
+use std::sync::Arc;
 
+use lightning_signer::signer::derive::KeyDerive;
+use lightning_signer::signer::derive::NativeKeyDerive;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
 use clightningrpc_common::client::Client;
+use clightningrpc_plugin::error;
+use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::{commands::RPCCommand, plugin::Plugin};
 use clightningrpc_plugin_macros::plugin;
 
-use rgb_common::{anyhow, RGBManager};
+use rgb_common::bitcoin::consensus::serialize;
+use rgb_common::bitcoin::consensus::Decodable;
+use rgb_common::bitcoin::hashes::hex::{FromHex, ToHex};
+use rgb_common::bitcoin::util::bip32::ExtendedPrivKey;
+use rgb_common::RGBManager;
+use rgb_common::{anyhow, bitcoin};
 
 #[derive(Clone, Debug)]
 pub(crate) struct State {
     /// The RGB Manager where we ask to do everything
     /// related to lightning.
     rgb_manager: Option<Arc<RGBManager>>,
-
     /// CLN RPC
     cln_rpc: Option<Arc<Client>>,
 }
@@ -31,6 +42,7 @@ impl State {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn rpc(&self) -> Arc<Client> {
         self.cln_rpc.clone().unwrap()
     }
@@ -39,7 +51,7 @@ impl State {
         self.rgb_manager.clone().unwrap()
     }
 
-    pub fn call<T: Serialize, U: DeserializeOwned + Debug>(
+    pub fn call<T: Serialize, U: DeserializeOwned + fmt::Debug>(
         &self,
         method: &str,
         payload: T,
@@ -70,44 +82,87 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
     Ok(plugin)
 }
 
-// FIXME: move to another part of the code.
-#[derive(Debug, Deserialize)]
-pub struct GetInfo {
-    id: String,
+fn read_secret(file: fs::File, network: &str) -> anyhow::Result<ExtendedPrivKey> {
+    let buffer = io::BufReader::new(file);
+    let hsmd_derive = NativeKeyDerive::new(network)?;
+    let xpriv = hsmd_derive.master_key(buffer.buffer());
+    Ok(xpriv)
 }
 
 fn on_init(plugin: &mut Plugin<State>) -> json::Value {
     let config = plugin.configuration.clone().unwrap();
     let rpc_file = format!("{}/{}", config.lightning_dir, config.rpc_file);
+    let hsmd_file = format!("{}/hsm_secret", config.lightning_dir);
+
+    let hsmd_file = fs::File::open(hsmd_file);
+    if let Err(err) = hsmd_file {
+        return json::json!({ "disable": format!("{err}") });
+    }
+    // SAFETY: we check if it is an error just before.
+    let hsmd_file = hsmd_file.unwrap();
+
+    let hsmd_secret = read_secret(hsmd_file, &config.network);
+    if let Err(err) = hsmd_secret {
+        return json::json!({ "disable": format!("{err}") });
+    }
+    // SAFETY: we check if it is an error just error.
+    let master_xprv = hsmd_secret.unwrap();
 
     let rpc = Client::new(rpc_file);
     plugin.state.cln_rpc = Some(Arc::new(rpc));
-    let getinfo: anyhow::Result<GetInfo> = plugin.state.call("getinfo", json::json!({}));
-    if let Err(err) = getinfo {
-        return json::json!({ "disable": format!("{err}") });
-    }
-    // SAFETY: Safe to unwrap because we unwrap before.
-    let getinfo = getinfo.unwrap();
 
-    // FIXME: I can get the public key from the configuration?
-    let manager = RGBManager::init(&config.lightning_dir, &getinfo.id, &config.network);
+    let manager = RGBManager::init(&config.lightning_dir, &master_xprv, &config.network);
     if let Err(err) = manager {
         return json::json!({ "disable": format!("{err}") });
     }
-
+    // SAFETY: we check if it is an error just before.
+    let manager = manager.unwrap();
+    plugin.state.rgb_manager = Some(Arc::new(manager));
     json::json!({})
 }
 
 #[derive(Clone, Debug)]
 struct OnFundingChannelTx;
 
+#[derive(Clone, Debug, Deserialize)]
+struct OnFundingChannelTxHook {
+    onfunding_channel_tx: OnFundingChannelTxBody,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct OnFundingChannelTxBody {
+    tx: String,
+    txid: String,
+    channel_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct OnFundingChannelTxResponse {
+    tx: String,
+}
+
 impl RPCCommand<State> for OnFundingChannelTx {
     fn call<'c>(
         &self,
-        _: &mut Plugin<State>,
-        _: json::Value,
+        plugin: &mut Plugin<State>,
+        body: json::Value,
     ) -> Result<json::Value, clightningrpc_plugin::errors::PluginError> {
-        log::info!("Calling hook `onfunding_channel_tx`");
-        Ok(json::json!({ "result": "continue" }))
+        log::info!("Calling hook `onfunding_channel_tx` with `{body}`",);
+        let body: OnFundingChannelTxHook = json::from_value(body)?;
+        let body = body.onfunding_channel_tx;
+        let raw_tx = Vec::from_hex(&body.tx).unwrap();
+        let tx: bitcoin::Transaction = Decodable::consensus_decode(&mut raw_tx.as_slice()).unwrap();
+        let txid = bitcoin::Txid::from_hex(&body.txid).unwrap();
+        assert_eq!(txid, tx.txid());
+        let tx = plugin
+            .state
+            .manager()
+            .handle_onfunding_tx(tx, txid, body.channel_id)
+            .unwrap();
+        let serialized_tx = serialize(&tx);
+        let result = OnFundingChannelTxResponse {
+            tx: serialized_tx.to_hex(),
+        };
+        Ok(json::json!({ "result": json::to_value(&result)? }))
     }
 }

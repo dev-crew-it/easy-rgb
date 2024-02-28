@@ -5,8 +5,9 @@ edition = "2021"
 
 [dependencies]
 clightningrpc-common = { git = "https://github.com/laanwj/cln4rust.git" }
-clightningrpc-plugin = { git = "https://github.com/laanwj/cln4rust.git " }
+clightningrpc-plugin = { git = "https://github.com/laanwj/cln4rust.git", features = [ "log" ] }
 clightningrpc-plugin-macros = { git = "https://github.com/laanwj/cln4rust.git" }
+vls-core = { git = "https://gitlab.com/vincenzopalazzo/validating-lightning-signer.git", branch = "macros/derivation" }
 log = "0.4.20"
 anyhow = "1.0.79"
 serde = "1.0.159"
