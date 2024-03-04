@@ -133,12 +133,14 @@ struct OnFundingChannelTxHook {
 struct OnFundingChannelTxBody {
     tx: String,
     txid: String,
+    psbt: String,
     channel_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
 struct OnFundingChannelTxResponse {
     tx: String,
+    psbt: String,
 }
 
 impl RPCCommand<State> for OnFundingChannelTx {
@@ -162,6 +164,7 @@ impl RPCCommand<State> for OnFundingChannelTx {
         let serialized_tx = serialize(&tx);
         let result = OnFundingChannelTxResponse {
             tx: serialized_tx.to_hex(),
+            psbt: body.psbt,
         };
         Ok(json::json!({ "result": json::to_value(&result)? }))
     }

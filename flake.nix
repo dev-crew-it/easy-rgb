@@ -19,8 +19,8 @@
           version = "rgb-hooks";
           src = pkgs.fetchgit {
             url = "https://github.com/vincenzopalazzo/lightning";
-            rev = "2dcdd1722be37b36a879023a9ddf074ccdce8187";
-            sha256 = "sha256-IyBuY/30f6CVVtHRsdVWPKBVDUydpmEhZJ8rAJ2iP2Q=";
+            rev = "e1da6c799f302ea0346e352a07fbc083e4b7d0df";
+            sha256 = "sha256-zaTNd0KnokiQdeMG9cE6Yx5FbQBA4F3Lm2vvWiWWjR8=";
             fetchSubmodules = true;
           };
           configureFlags = [ "--disable-rust" "--disable-valgrind" ];
