@@ -1,17 +1,12 @@
 //! A module to provide RGB functionality
 use std::fs;
 use std::path::PathBuf;
-use std::str::FromStr;
 
-use bitcoin::OutPoint as BtcOutPoint;
 use serde::{Deserialize, Serialize};
 
-use bp::seals::txout::CloseMethod;
 use rgb_core::ContractId;
 
 use crate::ldk;
-use crate::proxy;
-use crate::std::persistence::ConsignerError::Reveal;
 
 use ldk::ln::PaymentHash;
 

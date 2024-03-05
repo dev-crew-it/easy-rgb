@@ -19,8 +19,8 @@
           version = "rgb-hooks";
           src = pkgs.fetchgit {
             url = "https://github.com/vincenzopalazzo/lightning";
-            rev = "0b39cf0318f04a4c3f3bb59d2c63cd8ba856a0d9";
-            sha256 = "sha256-y+4i8srlaiVfNnIKhLhUUSrcdSjD2/WOjLSzffcoX88=";
+            rev = "e1da6c799f302ea0346e352a07fbc083e4b7d0df";
+            sha256 = "sha256-zaTNd0KnokiQdeMG9cE6Yx5FbQBA4F3Lm2vvWiWWjR8=";
             fetchSubmodules = true;
           };
           configureFlags = [ "--disable-rust" "--disable-valgrind" ];
@@ -54,7 +54,9 @@
           shellHook = ''
             export HOST_CC=gcc
             export PWD="$(pwd)"
-            export RUST_LOG=debug
+            export RUST_LOG=info
+
+            export PLUGIN_NAME=rgb-cln
 
             make
           '';

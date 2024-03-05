@@ -12,7 +12,7 @@ fmt:
 
 check:
 	$(CC) build
-	RUST_LOG=debug $(CC) test --all -- --show-output
+	$(CC) test --all -- --show-output
 
 example:
 	@echo "No example for the moment"
