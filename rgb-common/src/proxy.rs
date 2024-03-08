@@ -3,10 +3,10 @@ use core::str::FromStr;
 use core::time::Duration;
 
 use amplify::s;
-use bitcoin::Network;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 
+use crate::bitcoin::Network;
 use crate::BlockingClient;
 
 const JSON: &str = "application/json";

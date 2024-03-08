@@ -4,8 +4,10 @@
 use std::fmt;
 use std::fs;
 use std::io;
+use std::str::FromStr;
 use std::sync::Arc;
 
+use lightning_signer::bitcoin as vlsbtc;
 use lightning_signer::signer::derive::KeyDerive;
 use lightning_signer::signer::derive::NativeKeyDerive;
 use serde::de::DeserializeOwned;
@@ -13,15 +15,13 @@ use serde::{Deserialize, Serialize};
 use serde_json as json;
 
 use clightningrpc_common::client::Client;
-use clightningrpc_plugin::error;
-use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::{commands::RPCCommand, plugin::Plugin};
 use clightningrpc_plugin_macros::plugin;
 
-use rgb_common::bitcoin::consensus::serialize;
+use rgb_common::bitcoin::bip32::ExtendedPrivKey;
+use rgb_common::bitcoin::consensus::encode::serialize_hex;
 use rgb_common::bitcoin::consensus::Decodable;
-use rgb_common::bitcoin::hashes::hex::{FromHex, ToHex};
-use rgb_common::bitcoin::util::bip32::ExtendedPrivKey;
+use rgb_common::bitcoin::hashes::hex::FromHex;
 use rgb_common::RGBManager;
 use rgb_common::{anyhow, bitcoin};
 
@@ -51,6 +51,7 @@ impl State {
         self.rgb_manager.clone().unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn call<T: Serialize, U: DeserializeOwned + fmt::Debug>(
         &self,
         method: &str,
@@ -84,8 +85,10 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
 
 fn read_secret(file: fs::File, network: &str) -> anyhow::Result<ExtendedPrivKey> {
     let buffer = io::BufReader::new(file);
-    let hsmd_derive = NativeKeyDerive::new(network)?;
-    let xpriv = hsmd_derive.master_key(buffer.buffer());
+    let network = vlsbtc::Network::from_str(network)?;
+    let hsmd_derive = NativeKeyDerive::new(network);
+    let xpriv = hsmd_derive.master_key(buffer.buffer()).to_string();
+    let xpriv = ExtendedPrivKey::from_str(&xpriv)?;
     Ok(xpriv)
 }
 
@@ -154,16 +157,15 @@ impl RPCCommand<State> for OnFundingChannelTx {
         let body = body.onfunding_channel_tx;
         let raw_tx = Vec::from_hex(&body.tx).unwrap();
         let tx: bitcoin::Transaction = Decodable::consensus_decode(&mut raw_tx.as_slice()).unwrap();
-        let txid = bitcoin::Txid::from_hex(&body.txid).unwrap();
+        let txid = bitcoin::Txid::from_str(&body.txid).unwrap();
         assert_eq!(txid, tx.txid());
         let tx = plugin
             .state
             .manager()
             .handle_onfunding_tx(tx, txid, body.channel_id)
             .unwrap();
-        let serialized_tx = serialize(&tx);
         let result = OnFundingChannelTxResponse {
-            tx: serialized_tx.to_hex(),
+            tx: serialize_hex(&tx),
             psbt: body.psbt,
         };
         Ok(json::json!({ "result": json::to_value(&result)? }))
