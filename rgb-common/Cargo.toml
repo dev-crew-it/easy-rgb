@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.71"
 
-bitcoin = { version = "0.29.0", default-features = false, features = ["secp-recovery"] }
 lightning = "0.0.118"
 
 amplify = "=4.5.0"
