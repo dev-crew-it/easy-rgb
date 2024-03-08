@@ -7,6 +7,7 @@ use std::io;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use lightning_signer::bitcoin as vlsbtc;
 use lightning_signer::signer::derive::KeyDerive;
 use lightning_signer::signer::derive::NativeKeyDerive;
 use serde::de::DeserializeOwned;
@@ -84,7 +85,8 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
 
 fn read_secret(file: fs::File, network: &str) -> anyhow::Result<ExtendedPrivKey> {
     let buffer = io::BufReader::new(file);
-    let hsmd_derive = NativeKeyDerive::new(network)?;
+    let network = vlsbtc::Network::from_str(network)?;
+    let hsmd_derive = NativeKeyDerive::new(network);
     let xpriv = hsmd_derive.master_key(buffer.buffer()).to_string();
     let xpriv = ExtendedPrivKey::from_str(&xpriv)?;
     Ok(xpriv)
