@@ -10,11 +10,14 @@ use std::sync::Arc;
 use lightning_signer::bitcoin as vlsbtc;
 use lightning_signer::signer::derive::KeyDerive;
 use lightning_signer::signer::derive::NativeKeyDerive;
+use rgb_common::bitcoin::psbt::PartiallySignedTransaction;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
 use clightningrpc_common::client::Client;
+use clightningrpc_plugin::error;
+use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::{commands::RPCCommand, plugin::Plugin};
 use clightningrpc_plugin_macros::plugin;
 
@@ -159,14 +162,22 @@ impl RPCCommand<State> for OnFundingChannelTx {
         let tx: bitcoin::Transaction = Decodable::consensus_decode(&mut raw_tx.as_slice()).unwrap();
         let txid = bitcoin::Txid::from_str(&body.txid).unwrap();
         assert_eq!(txid, tx.txid());
+
+        let psbt_from_base64 =
+            bitcoin::base64::decode(&body.psbt).map_err(|err| error!("{err}"))?;
+        let mut psbt = PartiallySignedTransaction::deserialize(&psbt_from_base64)
+            .map_err(|err| error!("{err}"))?;
+
         let tx = plugin
             .state
             .manager()
             .handle_onfunding_tx(tx, txid, body.channel_id)
             .unwrap();
+        let updated_psbt = PartiallySignedTransaction::from_unsigned_tx(tx.clone())
+            .map_err(|err| error!("{err}"))?;
         let result = OnFundingChannelTxResponse {
             tx: serialize_hex(&tx),
-            psbt: body.psbt,
+            psbt: updated_psbt.serialize_hex(),
         };
         Ok(json::json!({ "result": json::to_value(&result)? }))
     }

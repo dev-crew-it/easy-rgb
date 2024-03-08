@@ -92,6 +92,14 @@ impl RGBManager {
         self.proxy_client.clone()
     }
 
+    /// Check if the channel with `channel_id` is a colored channel
+    /// if yes return true, otherwise false.
+    ///
+    /// Return an error if the channel do not exist inside the db.
+    pub fn is_colored_channel(&self, _channel_id: &String) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+
     /// Modify the funding transaction before sign it with the node signer.
     pub fn handle_onfunding_tx(
         &self,
@@ -99,6 +107,12 @@ impl RGBManager {
         txid: bitcoin::Txid,
         channel_id: String,
     ) -> anyhow::Result<bitcoin::Transaction> {
+        if self.is_colored_channel(&channel_id)? {
+            // Step 1: get the rgb info https://github.com/RGB-Tools/rgb-lightning-node/blob/master/src/ldk.rs#L328
+            // Step 2: avoid to sign the PSBT because is CLN that does it
+            // Step 3: Make the cosignemtn and post it somewhere
+            return Ok(tx);
+        }
         Ok(tx)
     }
 }
