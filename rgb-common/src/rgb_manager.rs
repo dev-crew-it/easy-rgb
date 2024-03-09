@@ -1,48 +1,46 @@
 //! RGB Manager
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::MutexGuard;
 
 use bitcoin::bip32::ChildNumber;
 use bitcoin::bip32::{ExtendedPrivKey, ExtendedPubKey};
 use bitcoin::secp256k1;
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::Network;
+use rgb_lib::wallet::Online;
+use rgb_lib::wallet::Recipient;
+use rgb_lib::wallet::RecipientData;
+use rgb_lib::ScriptBuf;
 use rgbwallet::bitcoin;
+use rgbwallet::bitcoin::psbt::PartiallySignedTransaction;
 
 use crate::lib::wallet::{DatabaseType, Wallet, WalletData};
 use crate::lib::BitcoinNetwork;
 use crate::proxy;
+use crate::rgb_storage as store;
+use crate::types;
+use store::RGBStorage;
+
+/// Static blinding costant (will be removed in the future)
+/// See https://github.com/RGB-Tools/rust-lightning/blob/80497c4086beea490b56e5b8413b7f6d86f2c042/lightning/src/rgb_utils/mod.rs#L53
+pub const STATIC_BLINDING: u64 = 777;
 
 pub struct RGBManager {
-    proxy_client: Arc<proxy::Client>,
+    esplora: Arc<proxy::Client>,
     wallet: Arc<Mutex<Wallet>>,
+    online_wallet: Option<Online>,
+    storage: Box<dyn store::RGBStorage>,
+    path: String,
+    proxy_endpoint: String,
 }
 
 impl std::fmt::Debug for RGBManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "RGB manager struct {{ .. }}")
     }
-}
-
-fn get_coin_type(bitcoin_network: BitcoinNetwork) -> u32 {
-    u32::from(bitcoin_network != BitcoinNetwork::Mainnet)
-}
-
-fn derive_account_xprv_from_mnemonic(
-    bitcoin_network: BitcoinNetwork,
-    master_xprv: &ExtendedPrivKey,
-) -> anyhow::Result<ExtendedPrivKey> {
-    const PURPOSE: u8 = 84;
-    const ACCOUNT: u8 = 0;
-
-    let coin_type = get_coin_type(bitcoin_network);
-    let account_derivation_path = vec![
-        ChildNumber::from_hardened_idx(PURPOSE as u32).unwrap(),
-        ChildNumber::from_hardened_idx(coin_type).unwrap(),
-        ChildNumber::from_hardened_idx(ACCOUNT as u32).unwrap(),
-    ];
-    Ok(master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_path)?)
 }
 
 impl RGBManager {
@@ -55,7 +53,8 @@ impl RGBManager {
 
         let bitcoin_network = BitcoinNetwork::from_str(network)?;
         // with rgb library tere is a new function for calculate the account key
-        let account_privkey = derive_account_xprv_from_mnemonic(bitcoin_network, master_xprv)?;
+        let account_privkey =
+            Self::derive_account_xprv_from_mnemonic(bitcoin_network, master_xprv)?;
         let account_xpub = ExtendedPubKey::from_priv(&Secp256k1::new(), &account_privkey);
         let mut wallet = Wallet::new(WalletData {
             data_dir: root_dir.to_owned(),
@@ -74,30 +73,47 @@ impl RGBManager {
             Network::Regtest => "",
             _ => anyhow::bail!("Network `{network}` not supported"),
         };
+        let mut online_info = None;
         if !url.is_empty() {
-            let _ = wallet.go_online(false, url.to_owned())?;
+            online_info = Some(wallet.go_online(false, url.to_owned())?);
         }
         // FIXME: setting up the correct proxy client URL
         Ok(Self {
-            proxy_client: Arc::new(client),
+            esplora: Arc::new(client),
             wallet: Arc::new(Mutex::new(wallet)),
+            online_wallet: online_info,
+            path: root_dir.to_owned(),
+            storage: Box::new(store::InMemoryStorage::new()?),
+            proxy_endpoint: String::from("TODO add the proxy endpoint"),
         })
     }
 
-    pub fn wallet(&self) -> Arc<Mutex<Wallet>> {
-        self.wallet.clone()
+    pub fn wallet(&self) -> MutexGuard<'_, Wallet> {
+        self.wallet.lock().unwrap()
     }
 
     pub fn proxy_client(&self) -> Arc<proxy::Client> {
-        self.proxy_client.clone()
+        self.esplora.clone()
     }
 
-    /// Check if the channel with `channel_id` is a colored channel
-    /// if yes return true, otherwise false.
-    ///
-    /// Return an error if the channel do not exist inside the db.
-    pub fn is_colored_channel(&self, _channel_id: &String) -> anyhow::Result<bool> {
-        Ok(true)
+    fn get_coin_type(bitcoin_network: BitcoinNetwork) -> u32 {
+        u32::from(bitcoin_network != BitcoinNetwork::Mainnet)
+    }
+
+    fn derive_account_xprv_from_mnemonic(
+        bitcoin_network: BitcoinNetwork,
+        master_xprv: &ExtendedPrivKey,
+    ) -> anyhow::Result<ExtendedPrivKey> {
+        const PURPOSE: u8 = 84;
+        const ACCOUNT: u8 = 0;
+
+        let coin_type = Self::get_coin_type(bitcoin_network);
+        let account_derivation_path = vec![
+            ChildNumber::from_hardened_idx(PURPOSE as u32).unwrap(),
+            ChildNumber::from_hardened_idx(coin_type).unwrap(),
+            ChildNumber::from_hardened_idx(ACCOUNT as u32).unwrap(),
+        ];
+        Ok(master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_path)?)
     }
 
     /// Modify the funding transaction before sign it with the node signer.
@@ -105,14 +121,47 @@ impl RGBManager {
         &self,
         tx: bitcoin::Transaction,
         txid: bitcoin::Txid,
+        psbt: &mut PartiallySignedTransaction,
         channel_id: String,
     ) -> anyhow::Result<bitcoin::Transaction> {
-        if self.is_colored_channel(&channel_id)? {
+        debug_assert!(tx.txid() == txid);
+        debug_assert!(psbt.clone().extract_tx().txid() == txid);
+        // allow looup by channel and returnt the rgb info
+        if self.storage.is_channel_rgb(&channel_id, false)? {
             // Step 1: get the rgb info https://github.com/RGB-Tools/rgb-lightning-node/blob/master/src/ldk.rs#L328
-            // Step 2: avoid to sign the PSBT because is CLN that does it
-            // Step 3: Make the cosignemtn and post it somewhere
+            let info = self.storage.get_rgb_channel_info_pending(&channel_id)?;
+            // Step 2: Modify the psbt and start sending with the rgb wallet
+            self.prepare_rgb_tx(&info, &tx, psbt)?;
+            // TODO: Step 3: Make the cosignemtn and post it somewhere
             return Ok(tx);
         }
         Ok(tx)
+    }
+
+    // Missing parameters: amount_sat of the funding tx and
+    // the script one
+    //
+    // Maybe it is possible extract from the tx if we know the information from
+    // the tx, but not sure if this is a good usage of cln hooks?
+    fn prepare_rgb_tx(
+        &self,
+        info: &types::RgbInfo,
+        tx: &bitcoin::Transaction,
+        psb: &mut PartiallySignedTransaction,
+    ) -> anyhow::Result<()> {
+        let recipient_map = amplify::map! {
+            info.contract_id.to_string() => vec![Recipient {
+                recipient_data: RecipientData::WitnessData {
+                    script_buf: ScriptBuf::new(), // TODO: get this from the transaction
+                    amount_sat: 0, // TODO get this from the transaction
+                    blinding: Some(STATIC_BLINDING),
+                },
+                amount: info.local_rgb_amount,
+                transport_endpoints: vec![self.proxy_endpoint.clone()]
+            }]
+        };
+        let wallet = self.wallet();
+        // FIXME:  modify the psbt with the RGB information
+        Ok(())
     }
 }

@@ -171,13 +171,11 @@ impl RPCCommand<State> for OnFundingChannelTx {
         let tx = plugin
             .state
             .manager()
-            .handle_onfunding_tx(tx, txid, body.channel_id)
+            .handle_onfunding_tx(tx, txid, &mut psbt, body.channel_id)
             .unwrap();
-        let updated_psbt = PartiallySignedTransaction::from_unsigned_tx(tx.clone())
-            .map_err(|err| error!("{err}"))?;
         let result = OnFundingChannelTxResponse {
             tx: serialize_hex(&tx),
-            psbt: updated_psbt.serialize_hex(),
+            psbt: psbt.serialize_hex(),
         };
         Ok(json::json!({ "result": json::to_value(&result)? }))
     }
