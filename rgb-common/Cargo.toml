@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = "1.0.71"
 
 lightning = "0.0.118"
+bitcoin = "0.30"
 
 amplify = "=4.5.0"
 base64 = "0.13.0"

@@ -4,12 +4,16 @@ use std::collections::BTreeMap;
 use commit_verify::mpc::MerkleBlock;
 use serde::{Deserialize, Serialize};
 
+use crate::bitcoin::Txid;
 use crate::core::{Anchor, TransitionBundle};
 use crate::std::contract::ContractId;
 
 /// RGB channel info
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RgbInfo {
+    /// Channel_id
+    #[serde(skip)]
+    pub channel_id: String,
     /// Channel contract ID
     pub contract_id: ContractId,
     /// Channel RGB local amount
@@ -44,4 +48,16 @@ pub struct TransferInfo {
     pub contract_id: ContractId,
     /// Transfer RGB amount
     pub rgb_amount: u64,
+}
+
+/// A reference to a transaction output.
+///
+/// Differs from bitcoin::blockdata::transaction::OutPoint as the index is a u16 instead of u32
+/// due to LN's restrictions on index values. Should reduce (possibly) unsafe conversions this way.
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub struct OutPoint {
+    /// The referenced transaction's txid.
+    pub txid: Txid,
+    /// The index of the referenced output in its transaction's vout.
+    pub index: u16,
 }

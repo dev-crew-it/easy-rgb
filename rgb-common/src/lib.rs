@@ -1,4 +1,5 @@
 mod comm;
+mod internal_wallet;
 mod proxy;
 mod rgb_manager;
 mod rgb_storage;
@@ -9,6 +10,7 @@ use reqwest::blocking::Client as BlockingClient;
 
 pub use anyhow;
 // Re-exporting RGB dependencies under a single module.
+pub use bitcoin as bitcoin30;
 pub use rgb;
 pub use rgb::interface::rgb20 as asset20;
 pub use rgb_core as core;
