@@ -1,14 +1,9 @@
 //! RGB Manager
-use std::collections::HashMap;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::MutexGuard;
 
-use bitcoin::bip32::ChildNumber;
-use bitcoin::bip32::{ExtendedPrivKey, ExtendedPubKey};
-use bitcoin::secp256k1::Secp256k1;
-use bitcoin::Network;
+use bitcoin::bip32::ExtendedPrivKey;
 use rgb_lib::wallet::Recipient;
 use rgb_lib::wallet::RecipientData;
 use rgb_lib::ScriptBuf;
@@ -16,7 +11,6 @@ use rgbwallet::bitcoin;
 use rgbwallet::bitcoin::psbt::PartiallySignedTransaction;
 
 use crate::internal_wallet::Wallet;
-use crate::lib::wallet::{DatabaseType, WalletData};
 use crate::lib::BitcoinNetwork;
 use crate::proxy;
 use crate::rgb_storage as store;
@@ -28,11 +22,10 @@ use crate::types;
 pub const STATIC_BLINDING: u64 = 777;
 
 pub struct RGBManager {
-    esplora: Arc<proxy::Client>,
+    consignment_proxy: Arc<proxy::ConsignmentClient>,
     storage: Box<dyn store::RGBStorage>,
     wallet: Arc<Wallet>,
     path: String,
-    proxy_endpoint: String,
 }
 
 impl std::fmt::Debug for RGBManager {
@@ -47,16 +40,16 @@ impl RGBManager {
         master_xprv: &ExtendedPrivKey,
         network: &str,
     ) -> anyhow::Result<Self> {
-        let client = proxy::Client::new(network)?;
+        let storage = Box::new(store::InMemoryStorage::new()?);
+        let client = proxy::ConsignmentClient::new(network)?;
         let bitcoin_network = BitcoinNetwork::from_str(network)?;
         let wallet = Wallet::new(&bitcoin_network, *master_xprv, root_dir)?;
         // FIXME: setting up the correct proxy client URL
         Ok(Self {
-            esplora: Arc::new(client),
+            consignment_proxy: Arc::new(client),
             wallet: Arc::new(wallet),
             path: root_dir.to_owned(),
-            storage: Box::new(store::InMemoryStorage::new()?),
-            proxy_endpoint: String::from("TODO add the proxy endpoint"),
+            storage,
         })
     }
 
@@ -64,8 +57,8 @@ impl RGBManager {
         self.wallet.clone()
     }
 
-    pub fn proxy_client(&self) -> Arc<proxy::Client> {
-        self.esplora.clone()
+    pub fn consignment_proxy(&self) -> Arc<proxy::ConsignmentClient> {
+        self.consignment_proxy.clone()
     }
 
     /// Modify the funding transaction before sign it with the node signer.
@@ -89,7 +82,21 @@ impl RGBManager {
                 index: 0, /* FIXME: cln should tell this info to us */
             };
             self.prepare_rgb_tx(&info, funding_outpoint, &tx, psbt)?;
-            // TODO: Step 3: Make the cosignemtn and post it somewhere
+
+            // Step 3: Make the cosignemtn and post it somewhere
+            let consignment_path = self
+                .wallet()
+                .path()
+                .join("transfers")
+                .join(txid.to_string().clone())
+                .join(info.contract_id.to_string())
+                .join("consignment_out");
+            self.consignment_proxy().post_consignment(
+                &consignment_path,
+                txid.to_string(),
+                txid.to_string(),
+                Some(0),
+            )?;
             return Ok(tx);
         }
         Ok(tx)
@@ -116,7 +123,7 @@ impl RGBManager {
                     blinding: Some(STATIC_BLINDING),
                 },
                 amount: info.local_rgb_amount,
-                transport_endpoints: vec![self.proxy_endpoint.clone()]
+                transport_endpoints: vec![self.consignment_proxy.url.clone()]
             }]
         };
         // FIXME: find the position of the vout;

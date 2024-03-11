@@ -1,4 +1,5 @@
 //! RGB Wallet mock
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -72,6 +73,10 @@ impl Wallet {
             network: BitcoinNetwork::from_str(&network.to_string())?,
             online_wallet: online_info,
         })
+    }
+
+    pub fn path(&self) -> PathBuf {
+        self.wallet.lock().unwrap().get_wallet_dir()
     }
 
     fn get_coin_type(bitcoin_network: BitcoinNetwork) -> u32 {
