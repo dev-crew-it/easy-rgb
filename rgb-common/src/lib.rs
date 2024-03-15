@@ -3,7 +3,7 @@ mod internal_wallet;
 mod proxy;
 mod rgb_manager;
 mod rgb_storage;
-mod types;
+pub mod types;
 
 use lightning as ldk;
 use reqwest::blocking::Client as BlockingClient;

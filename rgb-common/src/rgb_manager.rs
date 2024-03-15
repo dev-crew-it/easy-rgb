@@ -1,9 +1,9 @@
 //! RGB Manager
-use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use bitcoin::bip32::ExtendedPrivKey;
+use rgb_lib::wallet::Balance;
 use rgb_lib::wallet::Recipient;
 use rgb_lib::wallet::RecipientData;
 use rgb_lib::ScriptBuf;
@@ -16,6 +16,7 @@ use crate::proxy;
 use crate::rgb_storage as store;
 use crate::rgb_storage::RGBStorage;
 use crate::types;
+use crate::types::RgbInfo;
 
 /// Static blinding costant (will be removed in the future)
 /// See https://github.com/RGB-Tools/rust-lightning/blob/80497c4086beea490b56e5b8413b7f6d86f2c042/lightning/src/rgb_utils/mod.rs#L53
@@ -59,6 +60,20 @@ impl RGBManager {
 
     pub fn consignment_proxy(&self) -> Arc<proxy::ConsignmentClient> {
         self.consignment_proxy.clone()
+    }
+
+    pub fn assert_balance(&self, asset_id: String) -> anyhow::Result<Balance> {
+        let balance = self
+            .wallet
+            .wallet
+            .lock()
+            .unwrap()
+            .get_asset_balance(asset_id)?;
+        Ok(balance)
+    }
+
+    pub fn add_rgb_info(&self, info: &RgbInfo, pending: bool) -> anyhow::Result<()> {
+        self.storage.write_rgb_info(&info.channel_id, pending, info)
     }
 
     /// Modify the funding transaction before sign it with the node signer.

@@ -12,7 +12,6 @@ use crate::std::contract::ContractId;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RgbInfo {
     /// Channel_id
-    #[serde(skip)]
     pub channel_id: String,
     /// Channel contract ID
     pub contract_id: ContractId,

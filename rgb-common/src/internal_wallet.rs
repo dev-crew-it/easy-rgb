@@ -32,9 +32,9 @@ use crate::types::RgbInfo;
 
 pub struct Wallet {
     path: String,
-    network: BitcoinNetwork,
-    wallet: Arc<Mutex<RgbWallet>>,
-    online_wallet: Option<Online>,
+    pub network: BitcoinNetwork,
+    pub wallet: Arc<Mutex<RgbWallet>>,
+    pub online_wallet: Option<Online>,
 }
 
 impl Wallet {
