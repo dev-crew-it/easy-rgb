@@ -7,6 +7,7 @@ use std::io;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use json::Value;
 use lightning_signer::bitcoin as vlsbtc;
 use lightning_signer::signer::derive::KeyDerive;
 use lightning_signer::signer::derive::NativeKeyDerive;
@@ -15,15 +16,20 @@ use serde::{Deserialize, Serialize};
 use serde_json as json;
 
 use clightningrpc_common::client::Client;
+use clightningrpc_plugin::error;
+use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::{commands::RPCCommand, plugin::Plugin};
-use clightningrpc_plugin_macros::plugin;
+use clightningrpc_plugin_macros::{plugin, rpc_method};
 
 use rgb_common::bitcoin::bip32::ExtendedPrivKey;
 use rgb_common::bitcoin::consensus::encode::serialize_hex;
 use rgb_common::bitcoin::consensus::Decodable;
 use rgb_common::bitcoin::hashes::hex::FromHex;
+use rgb_common::bitcoin::psbt::PartiallySignedTransaction;
 use rgb_common::RGBManager;
 use rgb_common::{anyhow, bitcoin};
+
+mod walletrpc;
 
 #[derive(Clone, Debug)]
 pub(crate) struct State {
@@ -74,13 +80,20 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
         state: State::new(),
         dynamic: true,
         notification: [ ],
-        methods: [],
+        methods: [
+            rgb_balance,
+        ],
         hooks: [],
     };
     plugin.on_init(on_init);
 
     plugin = plugin.register_hook("onfunding_channel_tx", None, None, OnFundingChannelTx);
     Ok(plugin)
+}
+
+#[rpc_method(rpc_name = "rgbbalances", description = "Return the RGB balance")]
+pub fn rgb_balance(plugin: &mut Plugin<State>, requet: Value) -> Result<Value, PluginError> {
+    walletrpc::rgb_balance(plugin, requet)
 }
 
 fn read_secret(file: fs::File, network: &str) -> anyhow::Result<ExtendedPrivKey> {
@@ -159,14 +172,20 @@ impl RPCCommand<State> for OnFundingChannelTx {
         let tx: bitcoin::Transaction = Decodable::consensus_decode(&mut raw_tx.as_slice()).unwrap();
         let txid = bitcoin::Txid::from_str(&body.txid).unwrap();
         assert_eq!(txid, tx.txid());
+
+        let psbt_from_base64 =
+            bitcoin::base64::decode(&body.psbt).map_err(|err| error!("{err}"))?;
+        let mut psbt = PartiallySignedTransaction::deserialize(&psbt_from_base64)
+            .map_err(|err| error!("{err}"))?;
+
         let tx = plugin
             .state
             .manager()
-            .handle_onfunding_tx(tx, txid, body.channel_id)
+            .handle_onfunding_tx(tx, txid, &mut psbt, body.channel_id)
             .unwrap();
         let result = OnFundingChannelTxResponse {
             tx: serialize_hex(&tx),
-            psbt: body.psbt,
+            psbt: psbt.serialize_hex(),
         };
         Ok(json::json!({ "result": json::to_value(&result)? }))
     }
