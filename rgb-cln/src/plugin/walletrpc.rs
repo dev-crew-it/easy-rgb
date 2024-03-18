@@ -12,7 +12,6 @@ use clightningrpc_plugin::error;
 use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::plugin::Plugin;
 
-use rgb_common::lib::wallet::Balance;
 // TODO this should be hidden inside the common crate
 use rgb_common::types::RgbInfo;
 
@@ -25,6 +24,7 @@ pub struct RGBBalanceRequest {
 
 /// Return the balance of an RGB assert
 pub fn rgb_balance(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    log::info!("rgbbalances call with body `{request}`");
     let request: RGBBalanceRequest = json::from_value(request).map_err(|err| error!("{err}"))?;
     let balance = plugin
         .state
@@ -37,7 +37,7 @@ pub fn rgb_balance(plugin: &mut Plugin<State>, request: Value) -> Result<Value, 
 #[derive(Deserialize, Serialize)]
 pub struct RGBFundChannelRequest {
     peer_id: String,
-    amount_msat: String,
+    amount_msat: u64,
     asset_id: String,
 }
 
@@ -46,25 +46,33 @@ pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Va
     let request: RGBFundChannelRequest = json::from_value(request)?;
 
     // check if the asset id is valit
-    let contract_id = ContractId::from_str(&request.asset_id).map_err(|err| error!("{err}"))?;
+    let contract_id = ContractId::from_str(&request.asset_id)
+        .map_err(|err| error!("decoding contract id return error: `{err}`"))?;
+    log::info!("opening channel for contract id {contract_id}");
 
+    // Our plugin is not async :/ so this will create a deadlock!
+    /*
     let assert_balance: Balance = plugin
         .state
         .call(
-            "rpcbalance",
+            "rgbbalances",
             RGBBalanceRequest {
                 asset_id: request.asset_id.clone(),
             },
         )
         .map_err(|err| error!("{err}"))?;
 
+     */
     // FIXME: Check if we are connected with the peer otherwise connect to them
 
     // FIXME: we need the magic of core lightning here
-    let balance = request
-        .amount_msat
-        .parse::<u64>()
+    let balance = request.amount_msat;
+    let assert_balance = plugin
+        .state
+        .manager()
+        .assert_balance(contract_id.to_string())
         .map_err(|err| error!("{err}"))?;
+    log::info!("rgbalance {:?}", balance);
 
     if balance < assert_balance.spendable {
         return Err(error!(
@@ -75,7 +83,13 @@ pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Va
 
     let fundchannel: json::Value = plugin
         .state
-        .call("fundchannel", json::json!({}))
+        .call(
+            "fundchannel",
+            json::json!({
+                "id": request.peer_id,
+                "amount": balance.to_string(),
+            }),
+        )
         .map_err(|err| error!("{err}"))?;
     let channel_id = fundchannel["channel_id"].to_string();
     log::info!("RGB channel id `{channel_id}` created");
