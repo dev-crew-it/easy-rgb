@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use bitcoin::bip32::ExtendedPrivKey;
 use bitcoin::Network;
+use rgb_lib::wallet::AssetNIA;
 use rgb_lib::wallet::Balance;
 use rgb_lib::wallet::Recipient;
 use rgb_lib::wallet::RecipientData;
@@ -59,6 +60,18 @@ impl RGBManager {
 
     pub fn consignment_proxy(&self) -> Arc<proxy::ConsignmentClient> {
         self.consignment_proxy.clone()
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn issue_asset_nia(
+        &self,
+        ticker: String,
+        name: String,
+        precision: u8,
+        amounts: Vec<u64>,
+    ) -> anyhow::Result<AssetNIA> {
+        self.wallet
+            .issue_asset_nia(ticker, name, precision, amounts)
     }
 
     pub fn assert_balance(&self, asset_id: String) -> anyhow::Result<Balance> {
