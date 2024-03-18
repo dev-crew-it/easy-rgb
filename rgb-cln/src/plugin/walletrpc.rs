@@ -12,10 +12,9 @@ use clightningrpc_plugin::error;
 use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::plugin::Plugin;
 
-use rgb_common::bitcoin::psbt::Psbt;
 use rgb_common::bitcoin30;
 use rgb_common::core::ContractId;
-use rgb_common::lib::wallet::Balance;
+
 use rgb_common::types::RgbInfo;
 
 use crate::plugin::State;
