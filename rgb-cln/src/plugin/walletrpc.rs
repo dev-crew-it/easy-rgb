@@ -54,12 +54,12 @@ pub struct FundincStartResponse {
 
 /// Opening a RGB channel
 pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    log::info!("calling fund rgb channel with `{request}`");
     let request: RGBFundChannelRequest = json::from_value(request)?;
-
+    // FIXME: We should give a string like Tether/USTD and calculate the asset id in here
     // check if the asset id is valit
     let contract_id = ContractId::from_str(&request.asset_id)
         .map_err(|err| error!("decoding contract id return error: `{err}`"))?;
-    log::info!("opening channel for contract id {contract_id}");
 
     // Our plugin is not async :/ so this will create a deadlock!
     /*

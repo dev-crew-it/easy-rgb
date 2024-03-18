@@ -115,6 +115,7 @@ fn on_init(plugin: &mut Plugin<State>) -> json::Value {
 
     let hsmd_file = fs::File::open(hsmd_file);
     if let Err(err) = hsmd_file {
+        log::error!("failing open the hsmd file: {err}");
         return json::json!({ "disable": format!("{err}") });
     }
     // SAFETY: we check if it is an error just before.
@@ -122,6 +123,7 @@ fn on_init(plugin: &mut Plugin<State>) -> json::Value {
 
     let hsmd_secret = read_secret(hsmd_file, &config.network);
     if let Err(err) = hsmd_secret {
+        log::error!("failing reading hsmd secret: {err}");
         return json::json!({ "disable": format!("{err}") });
     }
     // SAFETY: we check if it is an error just error.
@@ -132,6 +134,7 @@ fn on_init(plugin: &mut Plugin<State>) -> json::Value {
 
     let manager = RGBManager::init(&config.lightning_dir, &master_xprv, &config.network);
     if let Err(err) = manager {
+        log::error!("failing to init the rgb managar: {err}");
         return json::json!({ "disable": format!("{err}") });
     }
     // SAFETY: we check if it is an error just before.
