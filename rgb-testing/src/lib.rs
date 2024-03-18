@@ -48,7 +48,7 @@ mod tests {
         let ocean_ln = node!();
         let btc = ocean_ln.btc();
         let miner_1 = node!(btc.clone());
-        if let Err(err) = open_channel(&miner_1, &ocean_ln, false) {
+        if let Err(err) = open_rgb_channel(&miner_1, &ocean_ln, false) {
             miner_1.print_logs()?;
             panic!("{err}");
         }
@@ -74,7 +74,7 @@ mod tests {
         log::info!("offer invoice: {:?}", payout_miner);
         // FIXME: we are not able at the moment to splice the channel to increase the balance,
         // so at the moment, so atm we open a new channel but this is not inside our simulation
-        open_channel(&ocean_ln, &miner_1, false)?;
+        open_rgb_channel(&ocean_ln, &miner_1, false)?;
 
         let listchannels = ocean_ln.rpc().listchannels(None, None, None)?.channels;
         log::debug!(

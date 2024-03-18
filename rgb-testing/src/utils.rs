@@ -3,6 +3,7 @@ use std::{str::FromStr, sync::Arc};
 
 use clightning_testing::prelude::clightningrpc::requests::AmountOrAll;
 use clightning_testing::{btc, cln};
+use serde_json::json;
 
 #[macro_export]
 macro_rules! wait {
@@ -93,7 +94,11 @@ macro_rules! wait_sync {
 }
 
 /// Open a channel from node_a -> node_b
-pub fn open_channel(node_a: &cln::Node, node_b: &cln::Node, dual_open: bool) -> anyhow::Result<()> {
+pub fn open_rgb_channel(
+    node_a: &cln::Node,
+    node_b: &cln::Node,
+    dual_open: bool,
+) -> anyhow::Result<()> {
     let addr = node_a.rpc().newaddr(None)?.bech32.unwrap();
     fund_wallet(node_a.btc(), &addr, 8)?;
     wait_for_funds(node_a)?;
@@ -111,9 +116,14 @@ pub fn open_channel(node_a: &cln::Node, node_b: &cln::Node, dual_open: bool) -> 
         .connect(&getinfo2.id, Some(&format!("127.0.0.1:{}", node_b.port)))?;
     let listfunds = node_a.rpc().listfunds()?;
     log::debug!("list funds {:?}", listfunds);
-    node_a
-        .rpc()
-        .fundchannel(&getinfo2.id, AmountOrAll::All, None)?;
+    node_a.rpc().call(
+        "fundrgbchannel",
+        serde_json::json!({
+           "peer_id": getinfo2.id,
+            "amount_msat": "all",
+            "asset_id": "USTD",
+        }),
+    )?;
     wait!(
         || {
             let mut channels = node_a.rpc().listfunds().unwrap().channels;
