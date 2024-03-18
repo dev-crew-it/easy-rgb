@@ -61,7 +61,7 @@
 
             export PLUGIN_NAME=rgb-cln
 
-            sudo docker compose -f rgb-testing/docker-compose.yaml up
+            sudo docker compose -f rgb-testing/docker-compose.yaml up -d
             make
           '';
         };
