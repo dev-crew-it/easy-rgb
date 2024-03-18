@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use bitcoin::bip32::ExtendedPrivKey;
+use bitcoin::Network;
 use rgb_lib::wallet::Balance;
 use rgb_lib::wallet::Recipient;
 use rgb_lib::wallet::RecipientData;
@@ -11,7 +12,6 @@ use rgbwallet::bitcoin;
 use rgbwallet::bitcoin::psbt::PartiallySignedTransaction;
 
 use crate::internal_wallet::Wallet;
-use crate::lib::BitcoinNetwork;
 use crate::proxy;
 use crate::rgb_storage as store;
 use crate::rgb_storage::RGBStorage;
@@ -26,6 +26,7 @@ pub struct RGBManager {
     consignment_proxy: Arc<proxy::ConsignmentClient>,
     storage: Box<dyn store::RGBStorage>,
     wallet: Arc<Wallet>,
+    #[allow(dead_code)]
     path: String,
 }
 
@@ -43,8 +44,8 @@ impl RGBManager {
     ) -> anyhow::Result<Self> {
         let storage = Box::new(store::InMemoryStorage::new()?);
         let client = proxy::ConsignmentClient::new(network)?;
-        let bitcoin_network = BitcoinNetwork::from_str(network)?;
-        let wallet = Wallet::new(&bitcoin_network, *master_xprv, root_dir)?;
+        let network = Network::from_str(network)?;
+        let wallet = Wallet::new(&network, *master_xprv, root_dir)?;
         // FIXME: setting up the correct proxy client URL
         Ok(Self {
             consignment_proxy: Arc::new(client),
@@ -126,11 +127,11 @@ impl RGBManager {
         &self,
         info: &types::RgbInfo,
         funding_outpoint: types::OutPoint,
-        tx: &bitcoin::Transaction,
+        _: &bitcoin::Transaction,
         psb: &mut PartiallySignedTransaction,
     ) -> anyhow::Result<()> {
         // TODO: this is still needed?
-        let recipient_map = amplify::map! {
+        let _recipient_map = amplify::map! {
             info.contract_id.to_string() => vec![Recipient {
                 recipient_data: RecipientData::WitnessData {
                     script_buf: ScriptBuf::new(), // TODO: get this from the transaction

@@ -121,7 +121,7 @@ pub fn open_rgb_channel(
         serde_json::json!({
            "peer_id": getinfo2.id,
             "amount_msat": "all",
-            "asset_id": "USTD",
+            "asset_id": "Tether/USTD",
         }),
     )?;
     wait!(

@@ -1,13 +1,9 @@
 //! RGB Wallet mock
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use bp::seals::txout::CloseMethod;
-use rgb_lib::ScriptBuf;
-use rgbstd::containers::BuilderSeal;
-use rgbstd::interface::TypedState;
-use rgbwallet::bitcoin::{TxOut, Txid};
 use strict_encoding::{FieldName, TypeName};
 
 use crate::bitcoin::bip32::ChildNumber;
@@ -17,6 +13,7 @@ use crate::bitcoin::psbt::PartiallySignedTransaction;
 use crate::bitcoin::secp256k1::hashes::Hash;
 use crate::bitcoin::secp256k1::Secp256k1;
 use crate::bitcoin::Network;
+use crate::bitcoin::{ScriptBuf, TxOut};
 use crate::bitcoin30::psbt::PartiallySignedTransaction as RgbPsbt;
 use crate::core::contract::Operation;
 use crate::lib::utils::load_rgb_runtime;
@@ -26,7 +23,9 @@ use crate::rgb::persistence::Inventory;
 use crate::rgb::psbt::opret::OutputOpret;
 use crate::rgb::psbt::{PsbtDbc, RgbExt, RgbInExt};
 use crate::rgb_manager::STATIC_BLINDING;
+use crate::std::containers::BuilderSeal;
 use crate::std::contract::GraphSeal;
+use crate::std::interface::TypedState;
 use crate::types;
 use crate::types::RgbInfo;
 
@@ -38,24 +37,20 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    pub fn new(
-        network: &BitcoinNetwork,
-        xprv: ExtendedPrivKey,
-        path: &str,
-    ) -> anyhow::Result<Self> {
+    pub fn new(network: &Network, xprv: ExtendedPrivKey, path: &str) -> anyhow::Result<Self> {
+        let btc_network = BitcoinNetwork::from_str(&network.to_string())?;
         // with rgb library tere is a new function for calculate the account key
-        let account_privkey = Self::derive_account_xprv_from_mnemonic(network.clone(), &xprv)?;
+        let account_privkey = Self::derive_account_xprv_from_mnemonic(btc_network, &xprv)?;
         let account_xpub = ExtendedPubKey::from_priv(&Secp256k1::new(), &account_privkey);
         let mut wallet = RgbWallet::new(WalletData {
             data_dir: path.to_owned(),
-            bitcoin_network: network.clone(),
+            bitcoin_network: btc_network,
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: 11,
             pubkey: account_xpub.to_string().to_owned(),
             mnemonic: None,
             vanilla_keychain: None,
         })?;
-        let network = Network::from_str(&network.to_string())?;
         let url = match network {
             Network::Bitcoin => "https://mempool.space/api",
             Network::Testnet => "https://mempool.space/testnet/api",
