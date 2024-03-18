@@ -1,7 +1,6 @@
 //! Test Utils
 use std::{str::FromStr, sync::Arc};
 
-use clightning_testing::prelude::clightningrpc::requests::AmountOrAll;
 use clightning_testing::{btc, cln};
 use serde_json::json;
 
@@ -112,7 +111,7 @@ pub fn make_new_asset_id(node: &cln::Node, ticker: String, name: String) -> anyh
 pub fn open_rgb_channel(
     node_a: &cln::Node,
     node_b: &cln::Node,
-    dual_open: bool,
+    _dual_open: bool,
 ) -> anyhow::Result<()> {
     let addr = node_a.rpc().newaddr(None)?.bech32.unwrap();
     fund_wallet(node_a.btc(), &addr, 8)?;
@@ -124,9 +123,8 @@ pub fn open_rgb_channel(
     node_a
         .rpc()
         .connect(&getinfo2.id, Some(&format!("127.0.0.1:{}", node_b.port)))?;
-    // TODO generate a new channel
     let asset_id = make_new_asset_id(node_a, "USTD".to_string(), "Tether".to_string())?;
-    node_a.rpc().call(
+    let value: serde_json::Value = node_a.rpc().call(
         "fundrgbchannel",
         serde_json::json!({
             "peer_id": getinfo2.id,
@@ -134,6 +132,7 @@ pub fn open_rgb_channel(
             "asset_id": asset_id,
         }),
     )?;
+    log::info!("`{value}`");
     wait!(
         || {
             let mut channels = node_a.rpc().listfunds().unwrap().channels;

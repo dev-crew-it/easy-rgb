@@ -49,6 +49,9 @@
             # integration test dependencies
             clightning
             bitcoind
+
+            docker
+            docker-compose
           ];
 
           shellHook = ''
@@ -58,6 +61,7 @@
 
             export PLUGIN_NAME=rgb-cln
 
+            sudo docker compose -f rgb-testing/docker-compose.yaml up
             make
           '';
         };

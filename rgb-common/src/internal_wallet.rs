@@ -103,8 +103,11 @@ impl Wallet {
         precision: u8,
         amounts: Vec<u64>,
     ) -> anyhow::Result<AssetNIA> {
+        let Some(ref online) = self.online_wallet else {
+            anyhow::bail!("Wallet is not online");
+        };
         let assert = self.wallet.lock().unwrap().issue_asset_nia(
-            self.online_wallet.clone().unwrap(),
+            online.clone(),
             ticker,
             name,
             precision,

@@ -131,5 +131,7 @@ pub fn rgb_issue_new_assert(
             request.amounts,
         )
         .map_err(|err| error!("{err}"))?;
-    Ok(json::to_value(assert)?)
+    let assert = json::to_value(assert)?;
+    log::info!("Generate new asset `{assert}`");
+    Ok(assert)
 }
