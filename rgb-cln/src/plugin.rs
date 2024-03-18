@@ -83,6 +83,7 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
         methods: [
             rgb_balance,
             rgb_fundchannel,
+            rgb_issue_asset,
         ],
         hooks: [],
     };
@@ -100,6 +101,11 @@ pub fn rgb_balance(plugin: &mut Plugin<State>, requet: Value) -> Result<Value, P
 #[rpc_method(rpc_name = "fundrgbchannel", description = "Funding a RGB Channel")]
 fn rgb_fundchannel(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
     walletrpc::fund_rgb_channel(plugin, request)
+}
+
+#[rpc_method(rpc_name = "issueasset", description = "Issue a new RGB asset")]
+fn rgb_issue_asset(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    walletrpc::rgb_issue_new_assert(plugin, request)
 }
 
 fn read_secret(file: fs::File, network: &str) -> anyhow::Result<ExtendedPrivKey> {

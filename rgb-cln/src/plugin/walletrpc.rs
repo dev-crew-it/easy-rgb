@@ -77,7 +77,13 @@ pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Va
 
     let fundchannel: json::Value = plugin
         .state
-        .call("fundchannel", json::json!({}))
+        .call(
+            "fundchannel",
+            json::json!({
+                "id": request.peer_id,
+                "amount": balance,
+            }),
+        )
         .map_err(|err| error!("{err}"))?;
     let channel_id = fundchannel["channel_id"].to_string();
     log::info!("RGB channel id `{channel_id}` created");
@@ -100,4 +106,30 @@ pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Va
         "info": fundchannel,
         "rgb_info": info,
     }))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct NewAssetRequest {
+    amounts: Vec<u64>,
+    ticker: String,
+    name: String,
+    precision: u8,
+}
+
+pub fn rgb_issue_new_assert(
+    plugin: &mut Plugin<State>,
+    request: Value,
+) -> Result<Value, PluginError> {
+    log::info!("calling rgb issue asset with request body: `{request}`");
+    let request: NewAssetRequest = json::from_value(request)?;
+    let rgb = plugin.state.manager();
+    let assert = rgb
+        .issue_asset_nia(
+            request.ticker,
+            request.name,
+            request.precision,
+            request.amounts,
+        )
+        .map_err(|err| error!("{err}"))?;
+    Ok(json::to_value(assert)?)
 }

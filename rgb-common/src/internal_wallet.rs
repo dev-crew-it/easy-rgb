@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use bp::seals::txout::CloseMethod;
+use rgb_lib::wallet::AssetNIA;
 use strict_encoding::{FieldName, TypeName};
 
 use crate::bitcoin::bip32::ChildNumber;
@@ -92,6 +93,24 @@ impl Wallet {
             ChildNumber::from_hardened_idx(ACCOUNT as u32).unwrap(),
         ];
         Ok(master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_path)?)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn issue_asset_nia(
+        &self,
+        ticker: String,
+        name: String,
+        precision: u8,
+        amounts: Vec<u64>,
+    ) -> anyhow::Result<AssetNIA> {
+        let assert = self.wallet.lock().unwrap().issue_asset_nia(
+            self.online_wallet.clone().unwrap(),
+            ticker,
+            name,
+            precision,
+            amounts,
+        )?;
+        Ok(assert)
     }
 
     /// Given A PSBT we add the rgb information into it
