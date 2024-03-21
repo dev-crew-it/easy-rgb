@@ -49,6 +49,7 @@
             # integration test dependencies
             clightning
             bitcoind
+            electrs
 
             docker
             docker-compose

@@ -3,21 +3,24 @@
 //! Author: Vincenzo Palazzo <vincenzopalazzo@member.fsf.org>
 
 #[cfg(test)]
+mod electrs;
+#[cfg(test)]
 mod utils;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::Once;
 
     use json::Value;
     use serde::Deserialize;
     use serde_json as json;
 
-    use clightning_testing::cln;
+    use clightning_testing::{btc, cln};
 
-    use crate::node;
     #[allow(unused_imports)]
     use crate::utils::*;
+    use crate::{electrs, node};
 
     static INIT: Once = Once::new();
 
@@ -45,9 +48,11 @@ mod tests {
     async fn test_simple_open_rgb_channel() -> anyhow::Result<()> {
         init();
 
-        let ocean_ln = node!();
-        let btc = ocean_ln.btc();
-        let miner_1 = node!(btc.clone());
+        let btc = btc::BtcNode::tmp("regtest").await?;
+        let btc = Arc::new(btc);
+        let electrs = electrs::ElectrsNode::tmp("regtest", btc.port.into()).await?;
+        let ocean_ln = node!(btc.clone(), electrs.port);
+        let miner_1 = node!(btc.clone(), electrs.port);
         if let Err(err) = open_rgb_channel(&miner_1, &ocean_ln, false) {
             miner_1.print_logs()?;
             panic!("{err}");

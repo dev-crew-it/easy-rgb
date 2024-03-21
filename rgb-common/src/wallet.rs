@@ -35,10 +35,10 @@ impl Wallet {
         })?;
         let network = Network::from_str(network)?;
         let url = match network {
-            Network::Bitcoin => "https://mempool.space/api",
-            Network::Testnet => "https://mempool.space/testnet/api",
-            Network::Signet => "https://mempool.space/signet/api",
-            Network::Regtest => "",
+            Network::Bitcoin => "",
+            Network::Testnet => "ssl://electrum.iriswallet.com:50013",
+            Network::Signet => "",
+            Network::Regtest => "127.0.0.1:50001",
             _ => anyhow::bail!("Network `{network}` not supported"),
         };
         let mut online_info = None;

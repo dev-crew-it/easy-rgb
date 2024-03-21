@@ -87,6 +87,14 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
         ],
         hooks: [],
     };
+
+    plugin.add_opt(
+        "rgb-electrum-rpc-addr",
+        "string",
+        None,
+        "Specify or override the default electrum endpoint with the specified one",
+        false,
+    );
     plugin.on_init(on_init);
 
     plugin = plugin.register_hook("onfunding_channel_tx", None, None, OnFundingChannelTx);

@@ -27,13 +27,13 @@ macro_rules! wait {
 
 #[macro_export]
 macro_rules! node {
-    ($btc:expr) => {{
+    ($btc:expr, $electrsport:expr) => {{
         let pwd = std::env!("PWD");
         let plugin_name = std::env!("PLUGIN_NAME");
         log::debug!("plugin path: {pwd}/../{plugin_name}");
         cln::Node::with_btc_and_params(
             $btc,
-            &format!("--developer --experimental-offers --plugin={pwd}/target/debug/{plugin_name}"),
+            &format!("--developer --experimental-offers --rgb-electrum-rpc-addr={} --plugin={pwd}/target/debug/{plugin_name}", $electrsport),
             "regtest",
         )
         .await?
