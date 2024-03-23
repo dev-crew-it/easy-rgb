@@ -213,3 +213,5 @@ impl RPCCommand<State> for OnFundingChannelTx {
         Ok(json::json!({ "result": json::to_value(&result)? }))
     }
 }
+
+// FIXME: add an hook that will add rgb onchain address to the wallet.
