@@ -108,7 +108,7 @@ impl Wallet {
         };
         let assert = self.wallet.lock().unwrap().issue_asset_nia(
             online.clone(),
-           ticker,
+            ticker,
             name,
             precision,
             amounts,

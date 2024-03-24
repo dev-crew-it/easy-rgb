@@ -6,6 +6,7 @@ use bitcoin::bip32::ExtendedPrivKey;
 use bitcoin::Network;
 use rgb_lib::wallet::AssetNIA;
 use rgb_lib::wallet::Balance;
+use rgb_lib::wallet::BtcBalance;
 use rgb_lib::wallet::Recipient;
 use rgb_lib::wallet::RecipientData;
 use rgbwallet::bitcoin;
@@ -44,6 +45,7 @@ impl RGBManager {
         let storage = Box::new(store::InMemoryStorage::new()?);
         let client = proxy::ConsignmentClient::new(network)?;
         let network = Network::from_str(network)?;
+
         let wallet = Wallet::new(&network, *master_xprv, root_dir)?;
         // FIXME: setting up the correct proxy client URL
         Ok(Self {
@@ -81,6 +83,11 @@ impl RGBManager {
             .lock()
             .unwrap()
             .get_asset_balance(asset_id)?;
+        Ok(balance)
+    }
+
+    pub fn onchain_balance(&self) -> anyhow::Result<BtcBalance> {
+        let balance = self.wallet.get_btc_balance()?;
         Ok(balance)
     }
 

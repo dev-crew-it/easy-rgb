@@ -3,16 +3,18 @@
 //! Author: Vincenzo Palazzo <vincenzopalazzo@member.fsf.org>
 use std::str::FromStr;
 
-use rgb_common::core::ContractId;
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 use serde_json::Value;
 
+use clightningrpc_common::json_utils;
 use clightningrpc_plugin::error;
 use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::plugin::Plugin;
 
+use rgb_common::bitcoin::psbt::Psbt;
 use rgb_common::bitcoin30;
+use rgb_common::core::ContractId;
 use rgb_common::core::ContractId;
 
 use rgb_common::types::RgbInfo;
@@ -21,18 +23,34 @@ use crate::plugin::State;
 
 #[derive(Deserialize, Serialize)]
 pub struct RGBBalanceRequest {
-    asset_id: String,
+    asset_id: Option<String>,
 }
 
 /// Return the balance of an RGB assert
 pub fn rgb_balance(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
     log::info!("rgbbalances call with body `{request}`");
     let request: RGBBalanceRequest = json::from_value(request).map_err(|err| error!("{err}"))?;
-    let balance = plugin
+    let mut assets_balance = json_utils::init_payload();
+    if let Some(asset_id) = request.asset_id {
+        let balance = plugin.state.manager().assert_balance(asset_id);
+        assets_balance = match balance {
+            Ok(balance) => json::to_value(balance).map_err(|err| error!("{err}"))?,
+            Err(err) => json::json!({
+                "warning": err.to_string(),
+            }),
+        };
+    }
+
+    let btc_balance = plugin
         .state
         .manager()
-        .assert_balance(request.asset_id)
-        .map_err(|err| error!("{err}"));
+        .wallet()
+        .get_btc_balance()
+        .map_err(|err| error!("{err}"))?;
+    let balance = json::json!({
+        "onchain": btc_balance,
+        "assets": assets_balance,
+    });
     Ok(json::to_value(balance)?)
 }
 
@@ -59,20 +77,6 @@ pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Va
     // check if the asset id is valit
     let contract_id = ContractId::from_str(&request.asset_id)
         .map_err(|err| error!("decoding contract id return error: `{err}`"))?;
-
-    // Our plugin is not async :/ so this will create a deadlock!
-    /*
-    let assert_balance: Balance = plugin
-        .state
-        .call(
-            "rgbbalances",
-            RGBBalanceRequest {
-                asset_id: request.asset_id.clone(),
-            },
-        )
-        .map_err(|err| error!("{err}"))?;
-
-     */
     // FIXME: Check if we are connected with the peer otherwise connect to them
 
     // FIXME: we need the magic of core lightning here
@@ -189,4 +193,54 @@ pub fn rgb_issue_new_assert(
         )
         .map_err(|err| error!("{err}"))?;
     Ok(json::to_value(assert)?)
+}
+
+#[derive(Deserialize)]
+struct RgbReceiveRequest {
+    asset_id: Option<String>,
+}
+
+pub fn rgb_receive(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    log::info!("calling rgb receive with body `{request}`");
+    let request: RgbReceiveRequest = json::from_value(request).map_err(|err| error!("{err}"))?;
+    let wallet = plugin.state.manager().wallet();
+
+    // Estimate the fee
+    // FIXME: please fix this async mess!
+    /*
+    let fees: Value = plugin
+        .state
+        .call("estimatefees", json::json!({}))
+        .map_err(|err| error!("{err}"))?;*/
+
+    let minimum = 1;
+    log::info!("creating utxo with fee `{minimum}`");
+    wallet
+        .create_utxos(minimum as f32, |psbt| {
+            log::info!("ask to sign a psbt: `{psbt}`");
+            let signed_psbt: json::Value = plugin
+                .state
+                .call(
+                    "signpsbt",
+                    json::json!({
+                        "psbt": psbt,
+                    }),
+                )
+                .map_err(|err| anyhow::anyhow!("{err}"))?;
+            let signed_psbt = signed_psbt
+                .get("signed_psbt")
+                .ok_or(anyhow::anyhow!("we do not find the signed_psbt"))?;
+            let signed_psbt = signed_psbt
+                .as_str()
+                .ok_or(anyhow::anyhow!("`signet_psbt` is not a string"))?
+                .to_owned();
+            log::info!("psbt signed: `{signed_psbt}`");
+            Ok(signed_psbt)
+        })
+        .map_err(|err| error!("{err}"))?;
+    log::info!("get the new blind receive");
+    let receive = wallet
+        .new_blind_receive(request.asset_id, vec![], 6)
+        .map_err(|err| error!("{err}"))?;
+    Ok(json::json!(receive))
 }
