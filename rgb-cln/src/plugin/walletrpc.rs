@@ -15,8 +15,7 @@ use clightningrpc_plugin::plugin::Plugin;
 use rgb_common::bitcoin::psbt::Psbt;
 use rgb_common::bitcoin30;
 use rgb_common::core::ContractId;
-use rgb_common::core::ContractId;
-
+use rgb_common::lib::wallet::Balance;
 use rgb_common::types::RgbInfo;
 
 use crate::plugin::State;
@@ -206,41 +205,23 @@ pub fn rgb_receive(plugin: &mut Plugin<State>, request: Value) -> Result<Value, 
     let wallet = plugin.state.manager().wallet();
 
     // Estimate the fee
-    // FIXME: please fix this async mess!
-    /*
     let fees: Value = plugin
         .state
         .call("estimatefees", json::json!({}))
-        .map_err(|err| error!("{err}"))?;*/
+        .map_err(|err| error!("{err}"))?;
+    log::info!("estimated fee: {fees}");
 
-    let minimum = 1;
+    let minimum = fees
+        .get("feerate_floor")
+        .ok_or(error!("not able to find the feerate_floor in: `{fees}`"))?;
+    let minimum = minimum.as_i64().unwrap_or_default();
     log::info!("creating utxo with fee `{minimum}`");
     wallet
-        .create_utxos(minimum as f32, |psbt| {
-            log::info!("ask to sign a psbt: `{psbt}`");
-            let signed_psbt: json::Value = plugin
-                .state
-                .call(
-                    "signpsbt",
-                    json::json!({
-                        "psbt": psbt,
-                    }),
-                )
-                .map_err(|err| anyhow::anyhow!("{err}"))?;
-            let signed_psbt = signed_psbt
-                .get("signed_psbt")
-                .ok_or(anyhow::anyhow!("we do not find the signed_psbt"))?;
-            let signed_psbt = signed_psbt
-                .as_str()
-                .ok_or(anyhow::anyhow!("`signet_psbt` is not a string"))?
-                .to_owned();
-            log::info!("psbt signed: `{signed_psbt}`");
-            Ok(signed_psbt)
-        })
+        .create_utxos(minimum as f32, |psbt| wallet.sing_with_master_key(psbt))
         .map_err(|err| error!("{err}"))?;
     log::info!("get the new blind receive");
     let receive = wallet
-        .new_blind_receive(request.asset_id, vec![], 6)
+        .new_blind_receive(request.asset_id, 6)
         .map_err(|err| error!("{err}"))?;
     Ok(json::json!(receive))
 }

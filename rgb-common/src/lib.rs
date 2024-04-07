@@ -9,6 +9,7 @@ use lightning as ldk;
 use reqwest::blocking::Client as BlockingClient;
 
 pub use anyhow;
+pub use serde_json as json;
 // Re-exporting RGB dependencies under a single module.
 pub use bitcoin as bitcoin30;
 pub use rgb;

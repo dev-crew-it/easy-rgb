@@ -6,12 +6,12 @@ use bitcoin::bip32::ExtendedPrivKey;
 use bitcoin::Network;
 use rgb_lib::wallet::AssetNIA;
 use rgb_lib::wallet::Balance;
-use rgb_lib::wallet::BtcBalance;
 use rgb_lib::wallet::Recipient;
 use rgb_lib::wallet::RecipientData;
 use rgbwallet::bitcoin;
 
 use crate::internal_wallet::Wallet;
+use crate::json;
 use crate::proxy;
 use crate::rgb_storage as store;
 use crate::rgb_storage::RGBStorage;
@@ -86,7 +86,7 @@ impl RGBManager {
         Ok(balance)
     }
 
-    pub fn onchain_balance(&self) -> anyhow::Result<BtcBalance> {
+    pub fn onchain_balance(&self) -> anyhow::Result<json::Value> {
         let balance = self.wallet.get_btc_balance()?;
         Ok(balance)
     }

@@ -15,7 +15,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json as json;
 
-use clightningrpc_common::client::Client;
+use clightningrpc::LightningRPC;
 use clightningrpc_plugin::error;
 use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::{commands::RPCCommand, plugin::Plugin};
@@ -32,42 +32,35 @@ pub(crate) struct State {
     /// The RGB Manager where we ask to do everything
     /// related to lightning.
     rgb_manager: Option<Arc<RGBManager>>,
-    /// CLN RPC
-    cln_rpc: Option<Arc<Client>>,
+    /// CLN RPC path
+    cln_rpc_path: Option<String>,
 }
 
 impl State {
     pub fn new() -> Self {
         State {
             rgb_manager: None,
-            cln_rpc: None,
+            cln_rpc_path: None,
         }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn rpc(&self) -> Arc<Client> {
-        self.cln_rpc.clone().unwrap()
     }
 
     pub(crate) fn manager(&self) -> Arc<RGBManager> {
         self.rgb_manager.clone().unwrap()
     }
 
-    #[allow(dead_code)]
     pub fn call<T: Serialize, U: DeserializeOwned + fmt::Debug>(
         &self,
         method: &str,
         payload: T,
     ) -> anyhow::Result<U> {
-        if let Some(rpc) = &self.cln_rpc {
-            let response = rpc.send_request(method, payload)?;
-            log::debug!("cln answer with {:?}", response);
-            if let Some(err) = response.error {
-                anyhow::bail!("cln error: {}", err.message);
-            }
-            return Ok(response.result.unwrap());
-        }
-        anyhow::bail!("rpc connection to core lightning not available")
+        let path = self
+            .cln_rpc_path
+            .as_ref()
+            .ok_or(anyhow::anyhow!("cln socket patch not found"))?;
+        let rpc = LightningRPC::new(path);
+        let response: U = rpc.call(method, payload)?;
+        log::debug!("cln answer with {:?}", response);
+        return Ok(response);
     }
 }
 
@@ -81,6 +74,7 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
             rgb_fundchannel,
             rgb_issue_asset,
             rgb_receive,
+            rgb_info,
         ],
         hooks: [],
     };
@@ -109,6 +103,16 @@ fn rgb_issue_asset(plugin: &mut Plugin<State>, request: Value) -> Result<Value, 
 #[rpc_method(rpc_name = "rgbreceive", description = "RGB Receive a token on chain")]
 fn rgb_receive(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
     walletrpc::rgb_receive(plugin, request)
+}
+
+// FIXME: this is just a test, we should remove it at some point
+#[rpc_method(rpc_name = "rgbinfo", description = "RGB Information")]
+fn rgb_info(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    let info: Value = plugin
+        .state
+        .call("getinfo", json::json!({}))
+        .map_err(|err| error!("{err}"))?;
+    Ok(info)
 }
 
 fn read_secret(file: fs::File, network: &str) -> anyhow::Result<ExtendedPrivKey> {
@@ -141,8 +145,7 @@ fn on_init(plugin: &mut Plugin<State>) -> json::Value {
     // SAFETY: we check if it is an error just error.
     let master_xprv = hsmd_secret.unwrap();
 
-    let rpc = Client::new(rpc_file);
-    plugin.state.cln_rpc = Some(Arc::new(rpc));
+    plugin.state.cln_rpc_path = Some(rpc_file);
 
     let manager = RGBManager::init(&config.lightning_dir, &master_xprv, &config.network);
     if let Err(err) = manager {
