@@ -6,9 +6,7 @@ use bitcoin::bip32::ExtendedPrivKey;
 use rgb_lib::wallet::Balance;
 use rgb_lib::wallet::Recipient;
 use rgb_lib::wallet::RecipientData;
-use rgb_lib::ScriptBuf;
 use rgbwallet::bitcoin;
-use rgbwallet::bitcoin::psbt::PartiallySignedTransaction;
 
 use crate::internal_wallet::Wallet;
 use crate::lib::BitcoinNetwork;
@@ -77,44 +75,36 @@ impl RGBManager {
     }
 
     /// Modify the funding transaction before sign it with the node signer.
-    pub fn handle_onfunding_tx(
+    pub fn build_rgb_funding_transaction(
         &self,
-        tx: bitcoin::Transaction,
-        txid: bitcoin::Txid,
-        psbt: &mut PartiallySignedTransaction,
-        channel_id: String,
-    ) -> anyhow::Result<bitcoin::Transaction> {
-        debug_assert!(tx.txid() == txid);
-        debug_assert!(psbt.clone().extract_tx().txid() == txid);
-        // allow looup by channel and returnt the rgb info
-        if self.storage.is_channel_rgb(&channel_id, false)? {
-            // Step 1: get the rgb info https://github.com/RGB-Tools/rgb-lightning-node/blob/master/src/ldk.rs#L328
-            let mut info = self.storage.get_rgb_channel_info_pending(&channel_id)?;
-            info.channel_id = channel_id;
-            // Step 2: Modify the psbt and start sending with the rgb wallet
-            let funding_outpoint = types::OutPoint {
-                txid,
-                index: 0, /* FIXME: cln should tell this info to us */
-            };
-            self.prepare_rgb_tx(&info, funding_outpoint, &tx, psbt)?;
+        rgb_info: &RgbInfo,
+        scriptpubkey: bitcoin::ScriptBuf,
+        fee_rate: f32,
+        min_conf: u8,
+    ) -> anyhow::Result<bitcoin::psbt::PartiallySignedTransaction> {
+        // Step 1: get the rgb info https://github.com/RGB-Tools/rgb-lightning-node/blob/master/src/ldk.rs#L328
+        //let mut info = self.storage.get_rgb_channel_info_pending(&channel_id)?;
+        //info.channel_id = channel_id;
 
-            // Step 3: Make the cosignemtn and post it somewhere
-            let consignment_path = self
-                .wallet()
-                .path()
-                .join("transfers")
-                .join(txid.to_string().clone())
-                .join(info.contract_id.to_string())
-                .join("consignment_out");
-            self.consignment_proxy().post_consignment(
-                &consignment_path,
-                txid.to_string(),
-                txid.to_string(),
-                Some(0),
-            )?;
-            return Ok(tx);
-        }
-        Ok(tx)
+        // Step 2: Modify the psbt and start sending with the rgb wallet
+        let psbt = self.prepare_rgb_tx(&rgb_info, scriptpubkey, fee_rate, min_conf)?;
+        // FIXME: avoid cloning
+        let txid = psbt.clone().extract_tx().txid();
+        // Step 3: Make the cosignemtn and post it somewhere
+        let consignment_path = self
+            .wallet()
+            .path()
+            .join("transfers")
+            .join(txid.to_string().clone())
+            .join(rgb_info.contract_id.to_string())
+            .join("consignment_out");
+        self.consignment_proxy().post_consignment(
+            &consignment_path,
+            txid.to_string(),
+            txid.to_string(),
+            Some(0),
+        )?;
+        return Ok(psbt);
     }
 
     // Missing parameters: amount_sat of the funding tx and
@@ -125,25 +115,25 @@ impl RGBManager {
     fn prepare_rgb_tx(
         &self,
         info: &types::RgbInfo,
-        funding_outpoint: types::OutPoint,
-        tx: &bitcoin::Transaction,
-        psb: &mut PartiallySignedTransaction,
-    ) -> anyhow::Result<()> {
-        // TODO: this is still needed?
+        scriptpubkey: bitcoin::ScriptBuf,
+        fee_rate: f32,
+        min_conf: u8,
+    ) -> anyhow::Result<bitcoin::psbt::PartiallySignedTransaction> {
         let recipient_map = amplify::map! {
             info.contract_id.to_string() => vec![Recipient {
                 recipient_data: RecipientData::WitnessData {
-                    script_buf: ScriptBuf::new(), // TODO: get this from the transaction
-                    amount_sat: 0, // TODO get this from the transaction
+                    script_buf: scriptpubkey,
+                    amount_sat: info.remote_rgb_amount,
                     blinding: Some(STATIC_BLINDING),
                 },
                 amount: info.local_rgb_amount,
                 transport_endpoints: vec![self.consignment_proxy.url.clone()]
             }]
         };
-        // FIXME: find the position of the vout;
-        self.wallet
-            .colored_funding(psb, funding_outpoint, info, 0)?;
-        Ok(())
+
+        let psbt = self
+            .wallet
+            .rgb_funding_complete(recipient_map, fee_rate, min_conf)?;
+        Ok(psbt)
     }
 }

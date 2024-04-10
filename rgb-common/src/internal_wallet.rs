@@ -1,13 +1,11 @@
 //! RGB Wallet mock
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use bp::seals::txout::CloseMethod;
-use rgb_lib::ScriptBuf;
-use rgbstd::containers::BuilderSeal;
-use rgbstd::interface::TypedState;
-use rgbwallet::bitcoin::{TxOut, Txid};
+use rgb_lib::wallet::{AssetNIA, BtcBalance, ReceiveData, Recipient};
 use strict_encoding::{FieldName, TypeName};
 
 use crate::bitcoin::bip32::ChildNumber;
@@ -97,6 +95,107 @@ impl Wallet {
             ChildNumber::from_hardened_idx(ACCOUNT as u32).unwrap(),
         ];
         Ok(master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_path)?)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn issue_asset_nia(
+        &self,
+        ticker: String,
+        name: String,
+        precision: u8,
+        amounts: Vec<u64>,
+    ) -> anyhow::Result<AssetNIA> {
+        let Some(ref online) = self.online_wallet else {
+            anyhow::bail!("Wallet is not online");
+        };
+        let assert = self.wallet.lock().unwrap().issue_asset_nia(
+            online.clone(),
+            ticker,
+            name,
+            precision,
+            amounts,
+        )?;
+        Ok(assert)
+    }
+
+    pub fn new_addr(&self) -> anyhow::Result<String> {
+        let addr = self.wallet.lock().unwrap().get_address()?;
+        Ok(addr)
+    }
+
+    pub fn new_blind_receive(
+        &self,
+        asset_id: Option<String>,
+        transport_endpoints: Vec<String>,
+        min_confirmations: u8,
+    ) -> anyhow::Result<ReceiveData> {
+        let blind_receive = self.wallet.lock().unwrap().blind_receive(
+            asset_id,
+            None,
+            None,
+            transport_endpoints,
+            min_confirmations,
+        )?;
+        Ok(blind_receive)
+    }
+
+    /// Preallocate the UTXO assets on chain for RGB.
+    pub fn create_utxos<F>(&self, fee_rate: f32, sign_psbt: F) -> anyhow::Result<()>
+    where
+        F: FnOnce(String) -> anyhow::Result<String>,
+    {
+        // FIXME: Mh, I should know why for this?
+        const UTXO_SIZE_SAT: u32 = 32000;
+
+        let wallet_online = self
+            .online_wallet
+            .clone()
+            .ok_or(anyhow::anyhow!("Wallet not online"))?;
+
+        let wallet = self.wallet.lock().unwrap();
+
+        let unsigned_psbt = wallet.create_utxos_begin(
+            wallet_online.clone(),
+            false,
+            Some(1),
+            Some(UTXO_SIZE_SAT),
+            fee_rate,
+        )?;
+
+        let psbt = sign_psbt(unsigned_psbt)?;
+
+        wallet.create_utxos_end(wallet_online, psbt)?;
+
+        Ok(())
+    }
+
+    pub fn get_btc_balance(&self) -> anyhow::Result<BtcBalance> {
+        let wallet = self.wallet.lock().unwrap();
+        let balance = wallet.get_btc_balance(
+            self.online_wallet
+                .clone()
+                .ok_or(anyhow::anyhow!("wallet is not online"))?,
+        )?;
+        Ok(balance)
+    }
+
+    pub fn rgb_funding_complete(
+        &self,
+        recipient_map: HashMap<String, Vec<Recipient>>,
+        fee_rate: f32,
+        min_conf: u8,
+    ) -> anyhow::Result<bitcoin::psbt::PartiallySignedTransaction> {
+        let wallet = self.wallet.lock().unwrap();
+        let online = self
+            .online_wallet
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Wallet not online"))?;
+        let unsigned_psbt =
+            wallet.send_begin(online.clone(), recipient_map, true, fee_rate, min_conf)?;
+        // FIXME: sign the psbt with the main key wallet
+        Ok(bitcoin::psbt::PartiallySignedTransaction::from_str(
+            &unsigned_psbt,
+        )?)
     }
 
     /// Given A PSBT we add the rgb information into it

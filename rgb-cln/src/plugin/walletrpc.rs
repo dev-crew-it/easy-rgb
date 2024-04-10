@@ -12,7 +12,10 @@ use clightningrpc_plugin::error;
 use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::plugin::Plugin;
 
-// TODO this should be hidden inside the common crate
+use rgb_common::bitcoin::psbt::Psbt;
+use rgb_common::bitcoin30;
+use rgb_common::core::ContractId;
+use rgb_common::lib::wallet::Balance;
 use rgb_common::types::RgbInfo;
 
 use crate::plugin::State;
@@ -39,6 +42,14 @@ pub struct RGBFundChannelRequest {
     peer_id: String,
     amount_msat: u64,
     asset_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct FundincStartResponse {
+    funding_address: String,
+    scriptpubkey: String,
+    close_to: String,
+    channel_type: json::Value,
 }
 
 /// Opening a RGB channel
@@ -81,21 +92,31 @@ pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Va
         ));
     }
 
-    let fundchannel: json::Value = plugin
+    let fundchannel: FundincStartResponse = plugin
         .state
         .call(
-            "fundchannel",
+            "fundchannel_start",
             json::json!({
                 "id": request.peer_id,
                 "amount": balance.to_string(),
             }),
         )
         .map_err(|err| error!("{err}"))?;
-    let channel_id = fundchannel["channel_id"].to_string();
-    log::info!("RGB channel id `{channel_id}` created");
+    let Ok(scriptpubkey) = bitcoin30::ScriptBuf::from_hex(&fundchannel.scriptpubkey) else {
+        let _: json::Value = plugin
+            .state
+            .call(
+                "fundchannel_cancel",
+                json::json!({
+                    "id": request.peer_id,
+                }),
+            )
+            .map_err(|err| error!("{err}"))?;
+        return Err(error!("Impossible parse `scriptpubkey`, failing funding"));
+    };
 
     let info = RgbInfo {
-        channel_id,
+        channel_id: "<channel_id>".to_owned(),
         contract_id,
         local_rgb_amount: balance,
         // FIXME: Check that we are not opening a dual funding channel with
@@ -107,6 +128,37 @@ pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Va
         .state
         .manager()
         .add_rgb_info(&info, true)
+        .map_err(|err| error!("{err}"))?;
+    let Ok(psbt) =
+        plugin
+            .state
+            .manager()
+            .build_rgb_funding_transaction(&info, scriptpubkey, 1.1, 6)
+    else {
+        let _: json::Value = plugin
+            .state
+            .call(
+                "fundchannel_cancel",
+                json::json!({
+                    "id": request.peer_id,
+                }),
+            )
+            .map_err(|err| error!("{err}"))?;
+        return Err(error!(
+            "Impossible .build_rgb_funding_transaction, failing funding"
+        ));
+    };
+
+    let psbt = psbt.serialize_hex();
+    let fundchannel: json::Value = plugin
+        .state
+        .call(
+            "fundchannel_complete",
+            json::json!({
+                "id": request.peer_id,
+                "psbt": psbt,
+            }),
+        )
         .map_err(|err| error!("{err}"))?;
     Ok(json::json!({
         "info": fundchannel,

@@ -12,7 +12,7 @@ use lightning_signer::bitcoin as vlsbtc;
 use lightning_signer::signer::derive::KeyDerive;
 use lightning_signer::signer::derive::NativeKeyDerive;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json as json;
 
 use clightningrpc_common::client::Client;
@@ -21,13 +21,9 @@ use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::{commands::RPCCommand, plugin::Plugin};
 use clightningrpc_plugin_macros::{plugin, rpc_method};
 
+use rgb_common::anyhow;
 use rgb_common::bitcoin::bip32::ExtendedPrivKey;
-use rgb_common::bitcoin::consensus::encode::serialize_hex;
-use rgb_common::bitcoin::consensus::Decodable;
-use rgb_common::bitcoin::hashes::hex::FromHex;
-use rgb_common::bitcoin::psbt::PartiallySignedTransaction;
 use rgb_common::RGBManager;
-use rgb_common::{anyhow, bitcoin};
 
 mod walletrpc;
 
@@ -88,7 +84,8 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
     };
     plugin.on_init(on_init);
 
-    plugin = plugin.register_hook("onfunding_channel_tx", None, None, OnFundingChannelTx);
+    // FIXME: we disable this because it will create loop
+    //plugin = plugin.register_hook("rpc_command", None, None, OnRpcCommand);
     Ok(plugin)
 }
 
@@ -142,59 +139,3 @@ fn on_init(plugin: &mut Plugin<State>) -> json::Value {
     plugin.state.rgb_manager = Some(Arc::new(manager));
     json::json!({})
 }
-
-#[derive(Clone, Debug)]
-struct OnFundingChannelTx;
-
-#[derive(Clone, Debug, Deserialize)]
-struct OnFundingChannelTxHook {
-    onfunding_channel_tx: OnFundingChannelTxBody,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct OnFundingChannelTxBody {
-    tx: String,
-    txid: String,
-    psbt: String,
-    channel_id: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct OnFundingChannelTxResponse {
-    tx: String,
-    psbt: String,
-}
-
-impl RPCCommand<State> for OnFundingChannelTx {
-    fn call<'c>(
-        &self,
-        plugin: &mut Plugin<State>,
-        body: json::Value,
-    ) -> Result<json::Value, clightningrpc_plugin::errors::PluginError> {
-        log::info!("Calling hook `onfunding_channel_tx` with `{body}`",);
-        let body: OnFundingChannelTxHook = json::from_value(body)?;
-        let body = body.onfunding_channel_tx;
-        let raw_tx = Vec::from_hex(&body.tx).unwrap();
-        let tx: bitcoin::Transaction = Decodable::consensus_decode(&mut raw_tx.as_slice()).unwrap();
-        let txid = bitcoin::Txid::from_str(&body.txid).unwrap();
-        assert_eq!(txid, tx.txid());
-
-        let psbt_from_base64 =
-            bitcoin::base64::decode(&body.psbt).map_err(|err| error!("{err}"))?;
-        let mut psbt = PartiallySignedTransaction::deserialize(&psbt_from_base64)
-            .map_err(|err| error!("{err}"))?;
-
-        let tx = plugin
-            .state
-            .manager()
-            .handle_onfunding_tx(tx, txid, &mut psbt, body.channel_id)
-            .unwrap();
-        let result = OnFundingChannelTxResponse {
-            tx: serialize_hex(&tx),
-            psbt: psbt.serialize_hex(),
-        };
-        Ok(json::json!({ "result": json::to_value(&result)? }))
-    }
-}
-
-// FIXME: add an hook that will add rgb onchain address to the wallet.
