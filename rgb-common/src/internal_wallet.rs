@@ -1,4 +1,5 @@
 //! RGB Wallet mock
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
