@@ -3,6 +3,7 @@ use std::{str::FromStr, sync::Arc};
 
 use clightning_testing::prelude::clightningrpc::requests::AmountOrAll;
 use clightning_testing::{btc, cln};
+use serde_json::json;
 
 #[macro_export]
 macro_rules! wait {
@@ -92,28 +93,47 @@ macro_rules! wait_sync {
     }};
 }
 
+pub fn make_new_asset_id(node: &cln::Node, ticker: String, name: String) -> anyhow::Result<String> {
+    let asset: serde_json::Value = node.rpc().call(
+        "issueasset",
+        json!({
+            "name": name,
+            "ticker": ticker,
+            "amounts": [10000],
+            "precision": 0,
+        }),
+    )?;
+    log::info!("new asset generated is `{asset}`");
+    let asset_id = asset.get("asset_id").unwrap();
+    Ok(asset_id.to_string())
+}
+
 /// Open a channel from node_a -> node_b
-pub fn open_channel(node_a: &cln::Node, node_b: &cln::Node, dual_open: bool) -> anyhow::Result<()> {
+pub fn open_rgb_channel(
+    node_a: &cln::Node,
+    node_b: &cln::Node,
+    dual_open: bool,
+) -> anyhow::Result<()> {
     let addr = node_a.rpc().newaddr(None)?.bech32.unwrap();
     fund_wallet(node_a.btc(), &addr, 8)?;
     wait_for_funds(node_a)?;
 
     wait_sync!(node_a);
 
-    if dual_open {
-        let addr = node_b.rpc().newaddr(None)?.address.unwrap();
-        fund_wallet(node_b.btc(), &addr, 6)?;
-    }
-
     let getinfo2 = node_b.rpc().getinfo()?;
     node_a
         .rpc()
         .connect(&getinfo2.id, Some(&format!("127.0.0.1:{}", node_b.port)))?;
-    let listfunds = node_a.rpc().listfunds()?;
-    log::debug!("list funds {:?}", listfunds);
-    node_a
-        .rpc()
-        .fundchannel(&getinfo2.id, AmountOrAll::All, None)?;
+    // TODO generate a new channel
+    let asset_id = make_new_asset_id(node_a, "USTD".to_string(), "Tether".to_string())?;
+    node_a.rpc().call(
+        "fundrgbchannel",
+        serde_json::json!({
+            "peer_id": getinfo2.id,
+            "amount_msat": "all",
+            "asset_id": asset_id,
+        }),
+    )?;
     wait!(
         || {
             let mut channels = node_a.rpc().listfunds().unwrap().channels;

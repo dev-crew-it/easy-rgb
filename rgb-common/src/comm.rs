@@ -35,6 +35,7 @@ pub struct RgbPaymentInfo {
 }
 
 /// Get RgbPaymentInfo file
+#[allow(dead_code)]
 pub fn get_rgb_payment_info(payment_hash: &PaymentHash, ldk_data_dir: &PathBuf) -> RgbPaymentInfo {
     let rgb_payment_info_path = ldk_data_dir.join(hex::encode(payment_hash.0));
     parse_rgb_payment_info(&rgb_payment_info_path)
@@ -48,6 +49,7 @@ pub fn parse_rgb_payment_info(rgb_payment_info_path: &PathBuf) -> RgbPaymentInfo
 }
 
 /// Get RgbInfo file
+#[allow(dead_code)]
 pub fn get_rgb_channel_info(
     channel_id: &[u8; 32],
     ldk_data_dir: &PathBuf,
@@ -59,12 +61,14 @@ pub fn get_rgb_channel_info(
 }
 
 /// Write RgbInfo file
+#[allow(dead_code)]
 pub fn write_rgb_channel_info(path: &PathBuf, rgb_info: &RgbInfo) {
     let serialized_info = serde_json::to_string(&rgb_info).expect("valid rgb info");
     fs::write(path, serialized_info).expect("able to write")
 }
 
 /// Rename RgbInfo file to channel_id
+#[allow(dead_code)]
 pub(crate) fn rename_rgbinfo_file(
     channel_id: &[u8; 32],
     temporary_channel_id: &[u8; 32],
@@ -76,6 +80,7 @@ pub(crate) fn rename_rgbinfo_file(
 }
 
 /// Update RGB channel amount
+#[allow(dead_code)]
 pub(crate) fn update_rgb_channel_amount(
     channel_id: &[u8; 32],
     rgb_offered_htlc: u64,

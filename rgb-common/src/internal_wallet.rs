@@ -1,24 +1,27 @@
 //! RGB Wallet mock
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use bdk;
+use bdk::blockchain::ElectrumBlockchain;
+use bdk::electrum_client::Client;
+use bdk::SyncOptions;
 use bp::seals::txout::CloseMethod;
-use rgb_lib::ScriptBuf;
-use rgbstd::containers::BuilderSeal;
-use rgbstd::interface::TypedState;
-use rgbwallet::bitcoin::{TxOut, Txid};
+use rgb_lib::wallet::{AssetNIA, ReceiveData, Recipient};
 use strict_encoding::{FieldName, TypeName};
 
 use crate::bitcoin::bip32::ChildNumber;
 use crate::bitcoin::bip32::ExtendedPrivKey;
 use crate::bitcoin::bip32::ExtendedPubKey;
-use crate::bitcoin::psbt::PartiallySignedTransaction;
 use crate::bitcoin::secp256k1::hashes::Hash;
 use crate::bitcoin::secp256k1::Secp256k1;
 use crate::bitcoin::Network;
+use crate::bitcoin::{ScriptBuf, TxOut};
 use crate::bitcoin30::psbt::PartiallySignedTransaction as RgbPsbt;
 use crate::core::contract::Operation;
+use crate::json;
 use crate::lib::utils::load_rgb_runtime;
 use crate::lib::wallet::{DatabaseType, Online, Wallet as RgbWallet, WalletData};
 use crate::lib::BitcoinNetwork;
@@ -26,7 +29,9 @@ use crate::rgb::persistence::Inventory;
 use crate::rgb::psbt::opret::OutputOpret;
 use crate::rgb::psbt::{PsbtDbc, RgbExt, RgbInExt};
 use crate::rgb_manager::STATIC_BLINDING;
+use crate::std::containers::BuilderSeal;
 use crate::std::contract::GraphSeal;
+use crate::std::interface::TypedState;
 use crate::types;
 use crate::types::RgbInfo;
 
@@ -35,43 +40,70 @@ pub struct Wallet {
     pub network: BitcoinNetwork,
     pub wallet: Arc<Mutex<RgbWallet>>,
     pub online_wallet: Option<Online>,
+    /// RGB proxy endpoint
+    proxy_endpoint: String,
+    /// bdk wallet with the private key of cln
+    /// this is dangerus to keep because cln should sign
+    /// our  stuff too, but currently we use this approach
+    /// in the future we should find a solution.
+    ///
+    /// FIXME: please fix this
+    master_wallet: bdk::Wallet<bdk::database::MemoryDatabase>,
 }
 
 impl Wallet {
-    pub fn new(
-        network: &BitcoinNetwork,
-        xprv: ExtendedPrivKey,
-        path: &str,
-    ) -> anyhow::Result<Self> {
+    pub fn new(network: &Network, xprv: ExtendedPrivKey, path: &str) -> anyhow::Result<Self> {
+        let btc_network = BitcoinNetwork::from_str(&network.to_string())?;
+        let master_wallet = bdk::Wallet::new(
+            bdk::template::Bip84(xprv, bdk::KeychainKind::External),
+            Some(bdk::template::Bip84(xprv, bdk::KeychainKind::Internal)),
+            bdk::bitcoin::Network::Testnet,
+            bdk::database::MemoryDatabase::default(),
+        )?;
+        let (url, proxy) = match network {
+            Network::Bitcoin => (None, None),
+            Network::Testnet => (
+                Some("ssl://electrum.iriswallet.com:50013"),
+                Some("rpcs://proxy.iriswallet.com/0.2/json-rpc"),
+            ),
+            Network::Signet => (None, None),
+            Network::Regtest => (
+                Some("127.0.0.1:50001"),
+                Some("rpc://127.0.0.1:3000/json-rpc"),
+            ),
+            _ => anyhow::bail!("Network `{network}` not supported"),
+        };
+
+        let (Some(url), Some(proxy)) = (url, proxy) else {
+            anyhow::bail!("Network `{network}` not supported by the plugin");
+        };
+
+        let blockchain = ElectrumBlockchain::from(Client::new(url)?);
+        master_wallet.sync(&blockchain, SyncOptions::default())?;
         // with rgb library tere is a new function for calculate the account key
-        let account_privkey = Self::derive_account_xprv_from_mnemonic(network.clone(), &xprv)?;
+        let account_privkey = Self::derive_account_xprv_from_mnemonic(btc_network, &xprv)?;
         let account_xpub = ExtendedPubKey::from_priv(&Secp256k1::new(), &account_privkey);
         let mut wallet = RgbWallet::new(WalletData {
             data_dir: path.to_owned(),
-            bitcoin_network: network.clone(),
+            bitcoin_network: btc_network,
             database_type: DatabaseType::Sqlite,
             max_allocations_per_utxo: 11,
             pubkey: account_xpub.to_string().to_owned(),
             mnemonic: None,
             vanilla_keychain: None,
         })?;
-        let network = Network::from_str(&network.to_string())?;
-        let url = match network {
-            Network::Bitcoin => "https://mempool.space/api",
-            Network::Testnet => "https://mempool.space/testnet/api",
-            Network::Signet => "https://mempool.space/signet/api",
-            Network::Regtest => "",
-            _ => anyhow::bail!("Network `{network}` not supported"),
-        };
+
         let mut online_info = None;
         if !url.is_empty() {
             online_info = Some(wallet.go_online(false, url.to_owned())?);
         }
         Ok(Self {
             path: path.to_owned(),
+            proxy_endpoint: proxy.to_owned(),
             wallet: Arc::new(Mutex::new(wallet)),
             network: BitcoinNetwork::from_str(&network.to_string())?,
             online_wallet: online_info,
+            master_wallet,
         })
     }
 
@@ -99,10 +131,130 @@ impl Wallet {
         Ok(master_xprv.derive_priv(&Secp256k1::new(), &account_derivation_path)?)
     }
 
+    #[cfg(debug_assertions)]
+    pub fn issue_asset_nia(
+        &self,
+        ticker: String,
+        name: String,
+        precision: u8,
+        amounts: Vec<u64>,
+    ) -> anyhow::Result<AssetNIA> {
+        let Some(ref online) = self.online_wallet else {
+            anyhow::bail!("Wallet is not online");
+        };
+        let assert = self.wallet.lock().unwrap().issue_asset_nia(
+            online.clone(),
+            ticker,
+            name,
+            precision,
+            amounts,
+        )?;
+        Ok(assert)
+    }
+
+    pub fn new_addr(&self) -> anyhow::Result<String> {
+        let addr = self.wallet.lock().unwrap().get_address()?;
+        Ok(addr)
+    }
+
+    pub fn new_blind_receive(
+        &self,
+        asset_id: Option<String>,
+        min_confirmations: u8,
+    ) -> anyhow::Result<ReceiveData> {
+        let blind_receive = self.wallet.lock().unwrap().blind_receive(
+            asset_id,
+            None,
+            None,
+            vec![self.proxy_endpoint.clone()],
+            min_confirmations,
+        )?;
+        Ok(blind_receive)
+    }
+
+    /// Preallocate the UTXO assets on chain for RGB.
+    pub fn create_utxos<F>(&self, fee_rate: f32, sign_psbt: F) -> anyhow::Result<()>
+    where
+        F: FnOnce(&mut bitcoin::psbt::PartiallySignedTransaction) -> anyhow::Result<()>,
+    {
+        // FIXME: Mh, I should know why for this?
+        const UTXO_SIZE_SAT: u32 = 32000;
+
+        let wallet_online = self
+            .online_wallet
+            .clone()
+            .ok_or(anyhow::anyhow!("Wallet not online"))?;
+
+        let wallet = self.wallet.lock().unwrap();
+
+        let unsigned_psbt = wallet.create_utxos_begin(
+            wallet_online.clone(),
+            false,
+            Some(1),
+            Some(UTXO_SIZE_SAT),
+            fee_rate,
+        )?;
+
+        let mut unsigned_psbt =
+            bitcoin::psbt::PartiallySignedTransaction::from_str(&unsigned_psbt)?;
+
+        sign_psbt(&mut unsigned_psbt)?;
+        wallet.create_utxos_end(wallet_online, unsigned_psbt.to_string())?;
+
+        Ok(())
+    }
+
+    pub fn get_btc_balance(&self) -> anyhow::Result<json::Value> {
+        let wallet = self.wallet.lock().unwrap();
+        let balance = wallet.get_btc_balance(
+            self.online_wallet
+                .clone()
+                .ok_or(anyhow::anyhow!("wallet is not online"))?,
+        )?;
+        let cln = self.master_wallet.get_balance()?;
+        Ok(json::json!({
+            "cln": cln,
+            "rgb": balance,
+        }))
+    }
+
+    pub fn sing_with_master_key(
+        &self,
+        psbt: &mut bitcoin::psbt::PartiallySignedTransaction,
+    ) -> anyhow::Result<()> {
+        let sign_options = bdk::SignOptions {
+            trust_witness_utxo: true,
+            ..Default::default()
+        };
+
+        if !self.master_wallet.sign(psbt, sign_options)? {
+            anyhow::bail!("bdk is not able to sing with master key the psbt `{psbt}`");
+        }
+        Ok(())
+    }
+
+    pub fn rgb_funding_complete(
+        &self,
+        recipient_map: HashMap<String, Vec<Recipient>>,
+        fee_rate: f32,
+        min_conf: u8,
+    ) -> anyhow::Result<bitcoin::psbt::PartiallySignedTransaction> {
+        let wallet = self.wallet.lock().unwrap();
+        let online = self
+            .online_wallet
+            .as_ref()
+            .ok_or(anyhow::anyhow!("Wallet not online"))?;
+        let unsigned_psbt =
+            wallet.send_begin(online.clone(), recipient_map, true, fee_rate, min_conf)?;
+        let mut psbt = bitcoin::psbt::PartiallySignedTransaction::from_str(&unsigned_psbt)?;
+        self.sing_with_master_key(&mut psbt)?;
+        Ok(psbt)
+    }
+
     /// Given A PSBT we add the rgb information into it
     pub fn colored_funding(
         &self,
-        psbt: &mut PartiallySignedTransaction,
+        psbt: &mut bitcoin::psbt::PartiallySignedTransaction,
         funding_outpoint: types::OutPoint,
         commitment_info: &RgbInfo,
         holder_vout: u32,
@@ -212,7 +364,7 @@ impl Wallet {
         rgb_psbt.rgb_bundle_to_lnpbp4().expect("ok");
         let _ = rgb_psbt.dbc_conclude(CloseMethod::OpretFirst)?;
 
-        *psbt = PartiallySignedTransaction::from_str(&rgb_psbt.to_string()).unwrap();
+        *psbt = bitcoin::psbt::PartiallySignedTransaction::from_str(&rgb_psbt.to_string()).unwrap();
 
         Ok(())
     }

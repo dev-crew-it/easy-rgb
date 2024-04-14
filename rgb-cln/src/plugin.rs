@@ -12,22 +12,18 @@ use lightning_signer::bitcoin as vlsbtc;
 use lightning_signer::signer::derive::KeyDerive;
 use lightning_signer::signer::derive::NativeKeyDerive;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json as json;
 
-use clightningrpc_common::client::Client;
+use clightningrpc::LightningRPC;
 use clightningrpc_plugin::error;
 use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::{commands::RPCCommand, plugin::Plugin};
 use clightningrpc_plugin_macros::{plugin, rpc_method};
 
+use rgb_common::anyhow;
 use rgb_common::bitcoin::bip32::ExtendedPrivKey;
-use rgb_common::bitcoin::consensus::encode::serialize_hex;
-use rgb_common::bitcoin::consensus::Decodable;
-use rgb_common::bitcoin::hashes::hex::FromHex;
-use rgb_common::bitcoin::psbt::PartiallySignedTransaction;
 use rgb_common::RGBManager;
-use rgb_common::{anyhow, bitcoin};
 
 mod walletrpc;
 
@@ -36,42 +32,35 @@ pub(crate) struct State {
     /// The RGB Manager where we ask to do everything
     /// related to lightning.
     rgb_manager: Option<Arc<RGBManager>>,
-    /// CLN RPC
-    cln_rpc: Option<Arc<Client>>,
+    /// CLN RPC path
+    cln_rpc_path: Option<String>,
 }
 
 impl State {
     pub fn new() -> Self {
         State {
             rgb_manager: None,
-            cln_rpc: None,
+            cln_rpc_path: None,
         }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn rpc(&self) -> Arc<Client> {
-        self.cln_rpc.clone().unwrap()
     }
 
     pub(crate) fn manager(&self) -> Arc<RGBManager> {
         self.rgb_manager.clone().unwrap()
     }
 
-    #[allow(dead_code)]
     pub fn call<T: Serialize, U: DeserializeOwned + fmt::Debug>(
         &self,
         method: &str,
         payload: T,
     ) -> anyhow::Result<U> {
-        if let Some(rpc) = &self.cln_rpc {
-            let response = rpc.send_request(method, payload)?;
-            log::debug!("cln answer with {:?}", response);
-            if let Some(err) = response.error {
-                anyhow::bail!("cln error: {}", err.message);
-            }
-            return Ok(response.result.unwrap());
-        }
-        anyhow::bail!("rpc connection to core lightning not available")
+        let path = self
+            .cln_rpc_path
+            .as_ref()
+            .ok_or(anyhow::anyhow!("cln socket patch not found"))?;
+        let rpc = LightningRPC::new(path);
+        let response: U = rpc.call(method, payload)?;
+        log::debug!("cln answer with {:?}", response);
+        return Ok(response);
     }
 }
 
@@ -82,18 +71,48 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
         notification: [ ],
         methods: [
             rgb_balance,
+            rgb_fundchannel,
+            rgb_issue_asset,
+            rgb_receive,
+            rgb_info,
         ],
         hooks: [],
     };
     plugin.on_init(on_init);
 
-    plugin = plugin.register_hook("onfunding_channel_tx", None, None, OnFundingChannelTx);
+    // FIXME: we disable this because it will create loop
+    //plugin = plugin.register_hook("rpc_command", None, None, OnRpcCommand);
     Ok(plugin)
 }
 
 #[rpc_method(rpc_name = "rgbbalances", description = "Return the RGB balance")]
 pub fn rgb_balance(plugin: &mut Plugin<State>, requet: Value) -> Result<Value, PluginError> {
     walletrpc::rgb_balance(plugin, requet)
+}
+
+#[rpc_method(rpc_name = "fundrgbchannel", description = "Funding a RGB Channel")]
+fn rgb_fundchannel(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    walletrpc::fund_rgb_channel(plugin, request)
+}
+
+#[rpc_method(rpc_name = "issueasset", description = "Issue a new RGB asset")]
+fn rgb_issue_asset(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    walletrpc::rgb_issue_new_assert(plugin, request)
+}
+
+#[rpc_method(rpc_name = "rgbreceive", description = "RGB Receive a token on chain")]
+fn rgb_receive(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    walletrpc::rgb_receive(plugin, request)
+}
+
+// FIXME: this is just a test, we should remove it at some point
+#[rpc_method(rpc_name = "rgbinfo", description = "RGB Information")]
+fn rgb_info(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    let info: Value = plugin
+        .state
+        .call("getinfo", json::json!({}))
+        .map_err(|err| error!("{err}"))?;
+    Ok(info)
 }
 
 fn read_secret(file: fs::File, network: &str) -> anyhow::Result<ExtendedPrivKey> {
@@ -112,6 +131,7 @@ fn on_init(plugin: &mut Plugin<State>) -> json::Value {
 
     let hsmd_file = fs::File::open(hsmd_file);
     if let Err(err) = hsmd_file {
+        log::error!("failing open the hsmd file: {err}");
         return json::json!({ "disable": format!("{err}") });
     }
     // SAFETY: we check if it is an error just before.
@@ -119,74 +139,21 @@ fn on_init(plugin: &mut Plugin<State>) -> json::Value {
 
     let hsmd_secret = read_secret(hsmd_file, &config.network);
     if let Err(err) = hsmd_secret {
+        log::error!("failing reading hsmd secret: {err}");
         return json::json!({ "disable": format!("{err}") });
     }
     // SAFETY: we check if it is an error just error.
     let master_xprv = hsmd_secret.unwrap();
 
-    let rpc = Client::new(rpc_file);
-    plugin.state.cln_rpc = Some(Arc::new(rpc));
+    plugin.state.cln_rpc_path = Some(rpc_file);
 
     let manager = RGBManager::init(&config.lightning_dir, &master_xprv, &config.network);
     if let Err(err) = manager {
+        log::error!("failing to init the rgb managar: {err}");
         return json::json!({ "disable": format!("{err}") });
     }
     // SAFETY: we check if it is an error just before.
     let manager = manager.unwrap();
     plugin.state.rgb_manager = Some(Arc::new(manager));
     json::json!({})
-}
-
-#[derive(Clone, Debug)]
-struct OnFundingChannelTx;
-
-#[derive(Clone, Debug, Deserialize)]
-struct OnFundingChannelTxHook {
-    onfunding_channel_tx: OnFundingChannelTxBody,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct OnFundingChannelTxBody {
-    tx: String,
-    txid: String,
-    psbt: String,
-    channel_id: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct OnFundingChannelTxResponse {
-    tx: String,
-    psbt: String,
-}
-
-impl RPCCommand<State> for OnFundingChannelTx {
-    fn call<'c>(
-        &self,
-        plugin: &mut Plugin<State>,
-        body: json::Value,
-    ) -> Result<json::Value, clightningrpc_plugin::errors::PluginError> {
-        log::info!("Calling hook `onfunding_channel_tx` with `{body}`",);
-        let body: OnFundingChannelTxHook = json::from_value(body)?;
-        let body = body.onfunding_channel_tx;
-        let raw_tx = Vec::from_hex(&body.tx).unwrap();
-        let tx: bitcoin::Transaction = Decodable::consensus_decode(&mut raw_tx.as_slice()).unwrap();
-        let txid = bitcoin::Txid::from_str(&body.txid).unwrap();
-        assert_eq!(txid, tx.txid());
-
-        let psbt_from_base64 =
-            bitcoin::base64::decode(&body.psbt).map_err(|err| error!("{err}"))?;
-        let mut psbt = PartiallySignedTransaction::deserialize(&psbt_from_base64)
-            .map_err(|err| error!("{err}"))?;
-
-        let tx = plugin
-            .state
-            .manager()
-            .handle_onfunding_tx(tx, txid, &mut psbt, body.channel_id)
-            .unwrap();
-        let result = OnFundingChannelTxResponse {
-            tx: serialize_hex(&tx),
-            psbt: psbt.serialize_hex(),
-        };
-        Ok(json::json!({ "result": json::to_value(&result)? }))
-    }
 }

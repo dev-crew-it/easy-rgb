@@ -18,6 +18,7 @@ const PROXY_TIMEOUT: u8 = 90;
 #[derive(Debug, Clone)]
 pub struct ConsignmentClient {
     inner: BlockingClient,
+    #[allow(dead_code)]
     network: Network,
     pub url: String,
 }
