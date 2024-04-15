@@ -12,12 +12,12 @@ use clightningrpc_plugin::error;
 use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::plugin::Plugin;
 
-
-use rgb_common::bitcoin30;
 use rgb_common::core::ContractId;
+use rgb_common::{bitcoin30, types};
 
 use rgb_common::types::RgbInfo;
 
+use crate::plugin::macros::howmuchfees;
 use crate::plugin::State;
 
 #[derive(Deserialize, Serialize)]
@@ -203,25 +203,47 @@ pub fn rgb_receive(plugin: &mut Plugin<State>, request: Value) -> Result<Value, 
     log::info!("calling rgb receive with body `{request}`");
     let request: RgbReceiveRequest = json::from_value(request).map_err(|err| error!("{err}"))?;
     let wallet = plugin.state.manager().wallet();
-
-    // Estimate the fee
-    let fees: Value = plugin
-        .state
-        .call("estimatefees", json::json!({}))
-        .map_err(|err| error!("{err}"))?;
-    log::info!("estimated fee: {fees}");
-
-    let minimum = fees
-        .get("feerate_floor")
-        .ok_or(error!("not able to find the feerate_floor in: `{fees}`"))?;
-    let minimum = minimum.as_i64().unwrap_or_default();
-    log::info!("creating utxo with fee `{minimum}`");
+    let fee = howmuchfees!(plugin);
+    log::info!("creating utxo with fee `{fee}`");
     wallet
-        .create_utxos(minimum as f32, |psbt| wallet.sing_with_master_key(psbt))
+        .create_utxos(fee as f32, |psbt| wallet.sing_with_master_key(psbt))
         .map_err(|err| error!("{err}"))?;
     log::info!("get the new blind receive");
     let receive = wallet
+        // FIXME: add the blocks inside the plugin configuration
         .new_blind_receive(request.asset_id, 6)
         .map_err(|err| error!("{err}"))?;
     Ok(json::json!(receive))
+}
+
+#[derive(Deserialize)]
+struct RgbSendRequest {
+    asset_id: String,
+    amount: u64,
+    blinded_utxo: String,
+    donation: bool,
+}
+
+impl Into<types::RGBSendAssetData> for RgbSendRequest {
+    fn into(self) -> types::RGBSendAssetData {
+        types::RGBSendAssetData {
+            asset_id: self.asset_id,
+            amount: self.amount,
+            blinded_utxo: self.blinded_utxo,
+            donation: self.donation,
+        }
+    }
+}
+
+pub fn rgb_send(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    log::info!("calling rgb send with body `{request}`");
+    let request: RgbSendRequest = json::from_value(request).map_err(|err| error!("{err}"))?;
+    let wallet = plugin.state.manager().wallet();
+    let fee = howmuchfees!(plugin);
+    let minconf = 6;
+    let send = wallet.send_asset(&request.into(), fee as f32, minconf, |psbt| {
+        wallet.sing_with_master_key(psbt)
+    });
+    let send = send.map_err(|err| error!("{err}"))?;
+    Ok(json::json!(send))
 }

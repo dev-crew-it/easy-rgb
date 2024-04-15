@@ -8,6 +8,15 @@ use crate::bitcoin::Txid;
 use crate::core::{Anchor, TransitionBundle};
 use crate::std::contract::ContractId;
 
+/// RGB Send asset data
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RGBSendAssetData {
+    pub asset_id: String,
+    pub amount: u64,
+    pub blinded_utxo: String,
+    pub donation: bool,
+}
+
 /// RGB channel info
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RgbInfo {
