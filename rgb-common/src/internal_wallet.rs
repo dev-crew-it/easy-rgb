@@ -4,12 +4,13 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use amplify::map;
 use bdk;
 use bdk::blockchain::ElectrumBlockchain;
 use bdk::electrum_client::Client;
 use bdk::SyncOptions;
 use bp::seals::txout::CloseMethod;
-use rgb_lib::wallet::{AssetNIA, ReceiveData, Recipient};
+use rgb_lib::wallet::SendResult;
 use strict_encoding::{FieldName, TypeName};
 
 use crate::bitcoin::bip32::ChildNumber;
@@ -21,8 +22,11 @@ use crate::bitcoin::Network;
 use crate::bitcoin::{ScriptBuf, TxOut};
 use crate::bitcoin30::psbt::PartiallySignedTransaction as RgbPsbt;
 use crate::core::contract::Operation;
+use crate::core::SecretSeal;
 use crate::json;
 use crate::lib::utils::load_rgb_runtime;
+use crate::lib::wallet::RecipientData;
+use crate::lib::wallet::{AssetNIA, ReceiveData, Recipient};
 use crate::lib::wallet::{DatabaseType, Online, Wallet as RgbWallet, WalletData};
 use crate::lib::BitcoinNetwork;
 use crate::rgb::persistence::Inventory;
@@ -155,6 +159,43 @@ impl Wallet {
     pub fn new_addr(&self) -> anyhow::Result<String> {
         let addr = self.wallet.lock().unwrap().get_address()?;
         Ok(addr)
+    }
+
+    pub fn send_asset<F>(
+        &self,
+        data: &types::RGBSendAssetData,
+        feerate: f32,
+        minconf: u8,
+        sign_psbt: F,
+    ) -> anyhow::Result<SendResult>
+    where
+        F: FnOnce(&mut bitcoin::psbt::PartiallySignedTransaction) -> anyhow::Result<()>,
+    {
+        let online = self
+            .online_wallet
+            .clone()
+            .ok_or(anyhow::anyhow!("Wallet is offline"))?;
+        let wallet = self.wallet.lock().unwrap();
+        let seal = SecretSeal::from_str(&data.blinded_utxo)?;
+        let recipient_map = map! {
+            data.asset_id.clone() => vec![Recipient {
+                recipient_data: RecipientData::BlindedUTXO(seal),
+                amount: data.amount,
+                transport_endpoints: vec![self.proxy_endpoint.clone()],
+            }]
+        };
+
+        let psbt = wallet.send_begin(
+            online.clone(),
+            recipient_map,
+            data.donation,
+            feerate,
+            minconf,
+        )?;
+        let mut psbt = bitcoin::psbt::PartiallySignedTransaction::from_str(&psbt)?;
+        sign_psbt(&mut psbt)?;
+        let sendresult = wallet.send_end(online, psbt.to_string())?;
+        Ok(sendresult)
     }
 
     pub fn new_blind_receive(

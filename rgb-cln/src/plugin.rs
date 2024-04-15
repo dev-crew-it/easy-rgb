@@ -25,6 +25,7 @@ use rgb_common::anyhow;
 use rgb_common::bitcoin::bip32::ExtendedPrivKey;
 use rgb_common::RGBManager;
 
+mod macros;
 mod walletrpc;
 
 #[derive(Clone, Debug)]
@@ -100,9 +101,14 @@ fn rgb_issue_asset(plugin: &mut Plugin<State>, request: Value) -> Result<Value, 
     walletrpc::rgb_issue_new_assert(plugin, request)
 }
 
-#[rpc_method(rpc_name = "rgbreceive", description = "RGB Receive a token on chain")]
+#[rpc_method(rpc_name = "rgbreceive", description = "RGB Receive a asset on chain")]
 fn rgb_receive(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
     walletrpc::rgb_receive(plugin, request)
+}
+
+#[rpc_method(rpc_name = "rgbsendasset", description = "RGB Send a asset on chain")]
+fn rgb_send(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginError> {
+    walletrpc::rgb_send(plugin, request)
 }
 
 // FIXME: this is just a test, we should remove it at some point
