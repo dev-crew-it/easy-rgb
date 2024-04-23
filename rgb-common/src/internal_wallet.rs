@@ -156,6 +156,16 @@ impl Wallet {
         Ok(assert)
     }
 
+    pub fn refresh(&self) -> anyhow::Result<()> {
+        let online = self
+            .online_wallet
+            .clone()
+            .ok_or(anyhow::anyhow!("Wallet is not online"))?;
+        let wallet = self.wallet.lock().unwrap();
+        wallet.refresh(online, None, vec![])?;
+        Ok(())
+    }
+
     pub fn new_addr(&self) -> anyhow::Result<String> {
         let addr = self.wallet.lock().unwrap().get_address()?;
         Ok(addr)

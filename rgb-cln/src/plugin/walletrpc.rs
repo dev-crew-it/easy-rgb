@@ -78,11 +78,11 @@ pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Va
         .map_err(|err| error!("decoding contract id return error: `{err}`"))?;
     // FIXME: Check if we are connected with the peer otherwise connect to them
 
+    let manager = plugin.state.manager();
+
     // FIXME: we need the magic of core lightning here
     let balance = request.amount_msat;
-    let assert_balance = plugin
-        .state
-        .manager()
+    let assert_balance = manager
         .assert_balance(contract_id.to_string())
         .map_err(|err| error!("{err}"))?;
     log::info!("rgbalance {:?}", balance);
@@ -126,17 +126,10 @@ pub fn fund_rgb_channel(plugin: &mut Plugin<State>, request: Value) -> Result<Va
         remote_rgb_amount: 0,
     };
 
-    plugin
-        .state
-        .manager()
+    manager
         .add_rgb_info(&info, true)
         .map_err(|err| error!("{err}"))?;
-    let Ok(psbt) =
-        plugin
-            .state
-            .manager()
-            .build_rgb_funding_transaction(&info, scriptpubkey, 1.1, 6)
-    else {
+    let Ok(psbt) = manager.build_rgb_funding_transaction(&info, scriptpubkey, 1.1, 6) else {
         let _: json::Value = plugin
             .state
             .call(
@@ -209,6 +202,13 @@ pub fn rgb_receive(plugin: &mut Plugin<State>, request: Value) -> Result<Value, 
         .create_utxos(fee as f32, |psbt| wallet.sing_with_master_key(psbt))
         .map_err(|err| error!("{err}"))?;
     log::info!("get the new blind receive");
+    if let Some(ref asset_id) = request.asset_id {
+        plugin
+            .state
+            .manager()
+            .listen_for(asset_id)
+            .map_err(|err| error!("{err}"))?;
+    }
     let receive = wallet
         // FIXME: add the blocks inside the plugin configuration
         .new_blind_receive(request.asset_id, 6)

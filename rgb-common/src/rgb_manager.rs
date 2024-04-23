@@ -95,7 +95,24 @@ impl RGBManager {
         self.storage.write_rgb_info(&info.channel_id, pending, info)
     }
 
+    /// Using the rgb proxy we to sync up if there is
+    /// anything for us that we need to sync.
+    ///
+    /// An example is when we receive a payment, we have something
+    /// the proxy that need to be signed, so this operation is doing
+    /// exactly this.
+    pub fn refresh(&self) -> anyhow::Result<()> {
+        self.wallet().refresh()?;
+        Ok(())
+    }
+
+    pub fn listen_for(&self, asset_id: &str) -> anyhow::Result<()> {
+        self.storage.listen_for_asset(asset_id)
+    }
+
     /// Modify the funding transaction before sign it with the node signer.
+    ///
+    /// Please note that this will also propagate rgb cosigment to the network.
     pub fn build_rgb_funding_transaction(
         &self,
         rgb_info: &RgbInfo,

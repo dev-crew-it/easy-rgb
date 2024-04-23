@@ -83,10 +83,8 @@ impl ConsignmentClient {
             .text("params", serde_json::to_string(&params)?)
             .part("file", consignment_file);
 
-        // FIXME: add a URL for this
-        let url = format!("{}/TODO", self.url);
         self.inner
-            .post(format!("{url}"))
+            .post(format!("{}", self.url))
             .header(CONTENT_TYPE, JSON)
             .multipart(form)
             .send()?

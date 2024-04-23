@@ -19,7 +19,7 @@ use clightningrpc::LightningRPC;
 use clightningrpc_plugin::error;
 use clightningrpc_plugin::errors::PluginError;
 use clightningrpc_plugin::{commands::RPCCommand, plugin::Plugin};
-use clightningrpc_plugin_macros::{plugin, rpc_method};
+use clightningrpc_plugin_macros::{notification, plugin, rpc_method};
 
 use rgb_common::anyhow;
 use rgb_common::bitcoin::bip32::ExtendedPrivKey;
@@ -69,7 +69,9 @@ pub fn build_plugin() -> anyhow::Result<Plugin<State>> {
     let mut plugin = plugin! {
         state: State::new(),
         dynamic: true,
-        notification: [ ],
+        notification: [
+            on_block_added,
+        ],
         methods: [
             rgb_balance,
             rgb_fundchannel,
@@ -119,6 +121,15 @@ fn rgb_info(plugin: &mut Plugin<State>, request: Value) -> Result<Value, PluginE
         .call("getinfo", json::json!({}))
         .map_err(|err| error!("{err}"))?;
     Ok(info)
+}
+
+#[notification(on = "block_added")]
+fn on_block_added(plugin: &mut Plugin<State>, request: &Value) {
+    let manager = plugin.state.manager();
+    let Err(err) = manager.refresh() else {
+        return;
+    };
+    log::error!("{err}");
 }
 
 fn read_secret(file: fs::File, network: &str) -> anyhow::Result<ExtendedPrivKey> {

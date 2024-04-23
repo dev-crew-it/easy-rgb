@@ -21,6 +21,10 @@ pub trait RGBStorage {
         is_pending: bool,
         info: &RgbInfo,
     ) -> anyhow::Result<()>;
+
+    fn listen_for_asset(&self, asset_id: &str) -> anyhow::Result<()>;
+
+    fn get_assets_list(&self) -> anyhow::Result<Vec<String>>;
 }
 
 pub struct InMemoryStorage {
@@ -42,6 +46,31 @@ impl RGBStorage for InMemoryStorage {
         Ok(Self {
             inner: RefCell::new(HashMap::new()),
         })
+    }
+
+    fn listen_for_asset(&self, asset_id: &str) -> anyhow::Result<()> {
+        let key = "rgb/assets".to_owned();
+        let mut map = self.inner.borrow_mut();
+        let mut assets: Vec<String> = if let Some(value) = map.get(&key) {
+            serde_json::from_str(value)?
+        } else {
+            vec![]
+        };
+        assets.push(asset_id.to_owned());
+        let assets = serde_json::to_string(&assets)?;
+        map.insert(key, assets);
+        Ok(())
+    }
+
+    fn get_assets_list(&self) -> anyhow::Result<Vec<String>> {
+        let key = "rgb/assets".to_owned();
+        let map = self.inner.borrow();
+        let assets: Vec<String> = if let Some(value) = map.get(&key) {
+            serde_json::from_str(value)?
+        } else {
+            vec![]
+        };
+        Ok(assets)
     }
 
     fn get_rgb_channel_info(&self, channel_id: &str) -> anyhow::Result<RgbInfo> {

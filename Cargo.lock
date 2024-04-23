@@ -2340,6 +2340,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "nosql_db"
+version = "0.0.2"
+source = "git+https://github.com/vincenzopalazzo/nosql-db.git#fc4bfdac7d29dd367c860f783213de252b7472ff"
+
+[[package]]
+name = "nosql_sled"
+version = "0.1.0"
+source = "git+https://github.com/vincenzopalazzo/nosql-db.git#fc4bfdac7d29dd367c860f783213de252b7472ff"
+dependencies = [
+ "nosql_db",
+ "sled",
+]
+
+[[package]]
 name = "ntest"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3009,6 +3023,8 @@ dependencies = [
  "futures",
  "hex",
  "lightning 0.0.118",
+ "nosql_db",
+ "nosql_sled",
  "reqwest",
  "rgb-contracts",
  "rgb-core",

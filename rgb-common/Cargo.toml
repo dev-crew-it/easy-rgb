@@ -27,5 +27,8 @@ strict_encoding = "=2.6.2"
 tokio = { version = "1.36", features = ["macros", "rt-multi-thread"] }
 bdk = "0.29.0"
 
+nosql_db = { git = "https://github.com/vincenzopalazzo/nosql-db.git" }
+nosql_sled = { git = "https://github.com/vincenzopalazzo/nosql-db.git" }
+
 # Fixing dependencies resolution :/
 amplify_num = "=0.5.1"
